@@ -12,7 +12,7 @@ object Main {
              else Source.fromInputStream(System.in)
 
     // Parse the input and wrap the resulting terms in a function.
-    val main = FunctionTerm(GmlParser(in.getLines.mkString))
+    val main = FunctionTerm(GmlParser(in.getLines.mkString("")))
 
     // Compile to bytecode.
     val compiler = new Compiler
