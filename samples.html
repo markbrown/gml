@@ -1,54 +1,89 @@
-<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01//EN" "http://www.w3.org/TR/html4/strict.dtd">
-<html>
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Strict//EN"
+  "http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd">
+
+<html xmlns="http://www.w3.org/1999/xhtml" xml:lang="en" lang="en">
 <head>
-<meta http-equiv="Content-Type" content="text/html;charset=utf-8">
-<title>GML sample images</title>
+  <meta http-equiv="Content-Type" content="text/html; charset=utf-8">
+  <title>markbrown/gml @ GitHub: sample images</title>
+  <link rel="stylesheet" type="text/css" href="gml.css"/>
 </head>
 
 <body>
-<h1>GML sample images</h1>
+<a href="http://github.com/markbrown/gml">
+  <img style="position: absolute; top: 0; right: 0; border: 0;" src="http://s3.amazonaws.com/github/ribbons/forkme_right_darkblue_121621.png" alt="Fork me on GitHub"/>
+</a>
 
-<p>
-Note: the sample GML files from the contest
-use the C-preprocessor directives
-<code>#define</code> and <code>#include</code>.
-Our program can't handle these directly,
-but on unix-type systems the expanded GML file can be recreated as follows:
-<pre>
-$ cpp -P file.gml file.out.gml
-</pre>
-This requires the included files to be in the same directory.
-For the samples here, the included files are
-<a href="https://github.com/markbrown/gml/raw/master/examples/colors.ins">
-colors.ins</a>,
-<a href="https://github.com/markbrown/gml/raw/master/examples/surface.ins">
-surface.ins</a> and
-<a href="https://github.com/markbrown/gml/raw/master/examples/util.ins">
-util.ins</a>.
-We provide both the original and expanded GML files below.
-</p>
+<div id="container">
 
-<p>
-<a href="https://github.com/markbrown/gml/raw/master/examples/cone-fractal.gml">cone-fractal.gml<a>
-is one of the samples from the contest, which expands to
-<a href="https://github.com/markbrown/gml/raw/master/examples/cone-fractal.out.gml">this</a>.
-<br/> <img src="cone-fractal.jpg" alt="cone-fractal.jpg">
-</p>
+  <div class="download">
+    <a href="http://github.com/markbrown/gml/zipball/master">
+      <img border="0" width="90" src="http://github.com/images/modules/download/zip.png">
+    </a>
+    <a href="http://github.com/markbrown/gml/tarball/master">
+      <img border="0" width="90" src="http://github.com/images/modules/download/tar.png">
+    </a>
+  </div>
 
-<p>
-<a href="https://github.com/markbrown/gml/raw/master/examples/fractal.gml">fractal.gml<a>
-is another of the samples from the contest, which expands to
-<a href="https://github.com/markbrown/gml/raw/master/examples/fractal.out.gml">this</a>.
-<br/> <img src="fractal.jpg" alt="fractal.jpg">
-</p>
+  <h1>
+    <a href="http://github.com/markbrown/gml">gml</a>
+    <span class="small">by
+      <a href="http://github.com/markbrown">markbrown</a>
+    </span>
+  </h1>
 
-<p>
-<a href="https://github.com/markbrown/gml/raw/master/examples/poly.gml">poly.gml<a>
-shows that a soccer ball is halfway between a dodecahedron and an icosahedron.
-<br/> <img src="poly.jpg" alt="poly.jpg">
-</p>
+  <div class="description">
+    GML: sample images
+  </div>
 
-<a href="index.html">Back</a>
+  <p>
+    Note: the sample GML files from the contest
+    use the C-preprocessor directives
+    <code>#define</code> and <code>#include</code>.
+    Our program can't handle these directly,
+    but on unix-type systems the expanded GML file can be recreated as follows:
+    <pre>$ cpp -P file.gml file.out.gml</pre>
+    This requires the included files to be in the same directory.
+    For the samples here, the included files are
+    <a href="https://github.com/markbrown/gml/raw/master/examples/colors.ins">
+      colors.ins</a>,
+    <a href="https://github.com/markbrown/gml/raw/master/examples/surface.ins">
+      surface.ins</a> and
+    <a href="https://github.com/markbrown/gml/raw/master/examples/util.ins">
+      util.ins</a>.
+    We provide both the original and expanded GML files.
+  </p>
+
+  <p>
+    <a href="https://github.com/markbrown/gml/raw/master/examples/cone-fractal.gml">
+      cone-fractal.gml<a>
+    is one of the samples from the contest, which expands to
+    <a href="https://github.com/markbrown/gml/raw/master/examples/cone-fractal.out.gml">this</a>.
+    <br/>
+    <img src="cone-fractal.jpg" alt="cone-fractal.jpg">
+  </p>
+
+  <p>
+    <a href="https://github.com/markbrown/gml/raw/master/examples/fractal.gml">
+      fractal.gml<a>
+    is another of the samples from the contest, which expands to
+    <a href="https://github.com/markbrown/gml/raw/master/examples/fractal.out.gml">
+      this</a>.
+    <br/>
+    <img src="fractal.jpg" alt="fractal.jpg">
+  </p>
+
+  <p>
+    <a href="https://github.com/markbrown/gml/raw/master/examples/poly.gml">
+      poly.gml<a>
+    shows that a soccer ball is halfway between
+    a dodecahedron and an icosahedron.
+    <br/>
+    <img src="poly.jpg" alt="poly.jpg">
+  </p>
+
+  <a href="index.html">Back</a>
+
+</div>
 
 </body>
 </html>
