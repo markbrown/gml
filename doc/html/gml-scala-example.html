@@ -242,7 +242,7 @@ The <CODE>ExpandArray</CODE> object provides a method to set an array element,
 using an immutable style interface where the result array is returned.
 In most cases <CODE>set</CODE> behaves just like a mutable update
 and returns the same array that is passed to it without copying.
-However, if the index is out of range then a larger array is returned.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+However, if the index is out of range then a larger array is returned.<SUP><A NAME="text2" HREF="#note2">2</A></SUP></P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
 <DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 2: Support code<A NAME="fig:expandarray"></A> for expanding arrays on demand.</TD></TR>
 </TABLE></DIV><FONT COLOR="blue">
 </FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package runtime
@@ -774,7 +774,7 @@ and have Scala insert them where needed.</P><BLOCKQUOTE CLASS="figure"><DIV CLAS
   private def doLength(data: DataStack): Unit =
     data.push(IntValue(data.pop.toArray.length))
 </FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>Unfortunately, this doesn&#X2019;t quite work with
-Scala&#X2019;s flow-based type inference algorithm.<SUP><A NAME="text2" HREF="#note2">2</A></SUP>
+Scala&#X2019;s flow-based type inference algorithm.<SUP><A NAME="text3" HREF="#note3">3</A></SUP>
 The problem is that if an expression such as
 </P><PRE CLASS="verbatim">  x =&gt; RealValue(toDegrees(acos(x)))
 </PRE><P>appears where the type <CODE>DataStack =&gt; Unit</CODE> is expected,
@@ -801,7 +801,13 @@ the first three entries in the operator table could be written:
 so the cure is worse than the disease!
 Hence, we don&#X2019;t bother with the implicit lifting methods.</P><!--BEGIN NOTES section-->
 <HR CLASS="footnoterule"><DL CLASS="thefootnotes"><DT CLASS="dt-thefootnotes">
-<A NAME="note2" HREF="#text2">2</A></DT><DD CLASS="dd-thefootnotes">This was tested with Scala 2.7.6.
+<A NAME="note2" HREF="#text2">2</A></DT><DD CLASS="dd-thefootnotes">This is one place that would need to change for Scala 2.8.
+Due to changes in the handling of arrays,
+we would need to provide an implicit <TT>ClassManifest</TT> argument
+to both of the methods.
+However, if we did that the code would no longer compile with Scala 2.7.
+See <A HREF="http://www.scala-lang.org/sid/7"><TT>http://www.scala-lang.org/sid/7</TT></A> for more information.
+</DD><DT CLASS="dt-thefootnotes"><A NAME="note3" HREF="#text3">3</A></DT><DD CLASS="dd-thefootnotes">This was tested with Scala 2.7.6.
 </DD></DL>
 <!--END NOTES-->
 <!--TOC section Compiling-->
@@ -2073,7 +2079,7 @@ Figure&#XA0;<A HREF="#fig:point">40</A> shows the implementation of a <CODE>Poin
 which we shall use for these three purposes.
 We shall also use it internally in the rendering package
 to represent the velocity of a ray,
-which is a vector quantity.<SUP><A NAME="text3" HREF="#note3">3</A></SUP></P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+which is a vector quantity.<SUP><A NAME="text4" HREF="#note4">4</A></SUP></P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
 <DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 40: The<A NAME="fig:point"></A> <TT>Point</TT> class.</TD></TR>
 </TABLE></DIV><FONT COLOR="blue">
 </FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package runtime.render
@@ -3403,7 +3409,7 @@ which is left over from intersecting with the <CODE>univ(ray)</CODE> value
 it means the origin of the ray was inside a solid shape.
 Since rays should never get inside solid things to begin with,
 we know this must be due to a rounding error
-and we ignore the first pair of boundaries.<SUP><A NAME="text4" HREF="#note4">4</A></SUP></P><P>The method in Figure&#XA0;<A HREF="#fig:firstentry">65</A> performs this step.
+and we ignore the first pair of boundaries.<SUP><A NAME="text5" HREF="#note5">5</A></SUP></P><P>The method in Figure&#XA0;<A HREF="#fig:firstentry">65</A> performs this step.
 It is a member of the <CODE>Boundary</CODE> companion object.
 Using this method, we avoid the problem of surface acne
 without affecting any other part of the image.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
@@ -3717,11 +3723,11 @@ and call the method defined above.</P><P>This is the final piece of code for our
 We can now run examples using all of the scene building
 and rendering functionality of GML.</P><!--BEGIN NOTES section-->
 <HR CLASS="footnoterule"><DL CLASS="thefootnotes"><DT CLASS="dt-thefootnotes">
-<A NAME="note3" HREF="#text3">3</A></DT><DD CLASS="dd-thefootnotes">Since the scene being rendered is not moving,
+<A NAME="note4" HREF="#text4">4</A></DT><DD CLASS="dd-thefootnotes">Since the scene being rendered is not moving,
 it doesn&#X2019;t matter that the rays have a speed as well as a direction.
 We treat the rays as having a velocity rather than just a direction,
 because it simplifies our calculations later on.
-</DD><DT CLASS="dt-thefootnotes"><A NAME="note4" HREF="#text4">4</A></DT><DD CLASS="dd-thefootnotes">Actually, this isn&#X2019;t quite right.
+</DD><DT CLASS="dt-thefootnotes"><A NAME="note5" HREF="#text5">5</A></DT><DD CLASS="dd-thefootnotes">Actually, this isn&#X2019;t quite right.
 It can also happen if the observer
 is stuck inside a solid object in the scene.
 The specification doesn&#X2019;t say what to do in such an unfortunate case,
