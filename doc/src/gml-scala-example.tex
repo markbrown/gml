@@ -1,0 +1,52 @@
+\documentclass{article}
+\usepackage{scalefnt}
+\usepackage{url}
+\usepackage{verbatim}
+\renewcommand{\topfraction}{0.9}
+\renewcommand{\bottomfraction}{0.8}
+\renewcommand{\textfraction}{0.1}
+\renewcommand{\floatpagefraction}{0.7}
+%\renewcommand{\baselinestretch}{1.02}
+
+\newcommand{\src}[1]{\subsubsection{\texttt{#1}}\verbatiminput{../../src/#1}}
+
+\newcommand{\cutname}[1]{}
+
+\newcommand{\code}{\scalefont{.8}}
+
+\newcommand{\setcaption}[1]{\code\newcommand{\captionvalue}{#1}}
+\newcommand{\getcaption}{\caption{\captionvalue}}
+
+\newcounter{exercise}
+\newcommand{\ex}
+  {\vspace{2ex}\stepcounter{exercise}
+    \noindent\textbf{Exercise \arabic{exercise}}\\*}
+
+\title{GML: an extended Scala example}
+\author{Mark Brown \\ \texttt{mark@csse.unimelb.edu.au}}
+\date{October 2010}
+\begin{document}
+\maketitle
+
+\tableofcontents
+\listoffigures
+
+\vspace{3ex}
+Copyright \copyright\ 2010 Mark Brown.
+The text of this work is licensed under a
+Creative Commons Attribution 3.0 Unported License.
+To view a copy of this license, visit
+\url{http://creativecommons.org/licenses/by/3.0}
+or send a letter to Creative Commons,
+171 2nd Street, Suite 300, San Francisco, California, 94105, USA.
+The Scala source code is distributed under a (revised) BSD-style license.
+See the file \verb!LICENSE! included with the source code.
+
+\input{tutorial.tex}
+
+\appendix
+
+\input{listing.tex}
+
+\end{document}
+

@@ -1,0 +1,39 @@
+\documentclass{article}
+\usepackage{url}
+\usepackage{color}
+
+\htmlprefix{GML: }
+%\tocnumber
+\flushdef{section}
+
+\newcommand{\code}{}
+\newcommand{\setcaption}[1]{\caption{#1}\color{blue}}
+\newcommand{\getcaption}{}
+
+\newcounter{exercise}
+\newcommand{\ex}
+  {\noindent\stepcounter{exercise}\textbf{Exercise \arabic{exercise}}\\*}
+
+\title{GML: an extended Scala example}
+\author{Mark Brown \\ \mailto{mark@csse.unimelb.edu.au}}
+\date{October 2010}
+\begin{document}
+\maketitle
+
+\begin{rawhtml}
+Copyright &#XA9; 2010 Mark Brown.
+The text of this work is licensed under a
+<a rel="license" href="http://creativecommons.org/licenses/by/3.0/">Creative Commons Attribution 3.0 Unported License</a>.
+<a rel="license" href="http://creativecommons.org/licenses/by/3.0/">
+<img alt="Creative Commons License" style="border-width:0" src="http://i.creativecommons.org/l/by/3.0/80x15.png"/></a>
+<br/>
+\end{rawhtml}
+The Scala source code is distributed under a (revised) BSD-style license.
+See the file \verb!LICENSE! included with the source code.
+
+\vspace{1ex}
+
+\input{tutorial.tex}
+
+\end{document}
+

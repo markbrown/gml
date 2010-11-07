@@ -1,0 +1,18 @@
+GML: an extended Scala example
+
+This project contains an extended example of programming in Scala
+<http://www.scala-lang.org/>.  The program implements a simple language
+for ray tracing named GML.  Users write GML code that produces a scene
+description, which is then rendered to an output file.  The task originally
+appeared as a challenge for the Third Annual ICFP Programming Contest
+<http://www.cs.cornell.edu/icfp/> in August, 2000.
+
+doc:
+	Tutorial/walkthrough (html, single-page html, pdf).
+
+examples:
+	Example GML programs.
+
+src:
+	GML implementation.
+
