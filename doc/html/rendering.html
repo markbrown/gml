@@ -1,0 +1,1681 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN"
+            "http://www.w3.org/TR/REC-html40/loose.dtd">
+<HTML>
+<HEAD>
+
+<META http-equiv="Content-Type" content="text/html; charset=US-ASCII">
+<META name="GENERATOR" content="hevea 1.10">
+<LINK rel="stylesheet" type="text/css" href="gml-scala-example.css">
+<TITLE>GML: Rendering</TITLE>
+</HEAD>
+<BODY >
+<A HREF="compiling.html"><IMG SRC="previous_motif.gif" ALT="Previous"></A>
+<A HREF="index.html"><IMG SRC="contents_motif.gif" ALT="Up"></A>
+<A HREF="exercises.html"><IMG SRC="next_motif.gif" ALT="Next"></A>
+<HR>
+<H2 CLASS="section"><A NAME="htoc24">5</A>&#XA0;&#XA0;Rendering<A NAME="sec:rendering"></A></H2><UL>
+<LI><A HREF="rendering.html#toc10">Points and rays</A>
+</LI><LI><A HREF="rendering.html#toc11">Lights</A>
+</LI><LI><A HREF="rendering.html#toc12">Scene construction</A>
+</LI><LI><A HREF="rendering.html#toc13">Transformations</A>
+</LI><LI><A HREF="rendering.html#toc14">Boundaries and boundary lists</A>
+</LI><LI><A HREF="rendering.html#toc15">The <TT>World</TT> class</A>
+</LI><LI><A HREF="rendering.html#toc16">Surface properties</A>
+</LI><LI><A HREF="rendering.html#toc17">Dealing with surface acne</A>
+</LI><LI><A HREF="rendering.html#toc18">Ray tracing</A>
+</LI><LI><A HREF="rendering.html#toc19">Pixmaps</A>
+</LI><LI><A HREF="rendering.html#toc20">The <TT>render</TT> operator</A>
+</LI></UL>
+<H3 CLASS="subsection"><A NAME="toc10"></A><A NAME="htoc25">5.1</A>&#XA0;&#XA0;Points and rays<A NAME="sec:point"></A></H3><P>In GML, points are used to represent positions in 3D space,
+to represent colors,
+and can also be used as a general data structure.
+Figure&#XA0;<A HREF="#fig:point">40</A> shows the implementation of a <CODE>Point</CODE> class,
+which we shall use for these three purposes.
+We shall also use it internally in the rendering package
+to represent the velocity of a ray,
+which is a vector quantity.<SUP><A NAME="text3" HREF="#note3">3</A></SUP></P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 40: The<A NAME="fig:point"></A> <TT>Point</TT> class.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package runtime.render
+
+case class Point(x: Double, y: Double, z: Double) {
+  import Math.{max, sqrt}
+
+  // vector sum, difference
+  def +(p: Point) = Point(x+p.x, y+p.y, z+p.z)
+  def -(p: Point) = Point(x-p.x, y-p.y, z-p.z)
+
+  // scalar product, quotient
+  def *(s: Double) = Point(x*s, y*s, z*s)
+  def /(s: Double) = *(1/s)
+
+  // vector dot product
+  def dot(p: Point) = x*p.x + y*p.y + z*p.z
+
+  // vector dot product on XZ plane
+  def dotXZ(p: Point) = x*p.x + z*p.z
+
+  // vector dot product with Y-conjugate
+  def conjY(p: Point) = x*p.x - y*p.y + z*p.z
+
+  // vector cross product
+  def cross(p: Point) = Point(y*p.z - z*p.y, z*p.x - x*p.z, x*p.y - y*p.x)
+
+  // coordinate-wise product
+  def times(p: Point) = Point(x*p.x, y*p.y, z*p.z)
+
+  // maximum value of any coordinate
+  def maxCoordinate = max(x, max(y, z))
+
+  // length squared
+  def squared = dot(this)
+
+  // additive inverse
+  def neg = *(-1)
+
+  // normalize
+  def unit = this / sqrt(this squared)
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>A number of methods implementing vector algebra operations are provided.
+Most of these are standard, such as dot and cross product.
+The <CODE>dotXZ</CODE> is the dot product of the vectors
+projected onto the X-Z plane.
+It is the same as the dot product, except without the middle term.
+The &#X201C;<I>y</I>-conjugate&#X201D; of a point is a point with the same <I>x</I> and <I>z</I> values,
+but the <I>y</I> value is negated.
+The dot product with a <I>y</I>-conjugate is therefore the same as the dot product,
+except with the middle term negated.</P><P>Note that we provide a method for the length squared, but not the length.
+Calculating the latter requires an expensive <CODE>sqrt</CODE> operation,
+so we avoid it as much as possible.
+In most cases we just want to compare two lengths to see which is longer;
+for this purpose it suffices to compare the square of the lengths instead.</P><P>The <CODE>times</CODE> method is for dealing with color.
+If a light of one color shines on a surface of another color,
+the resulting visible color will be the coordinate-wise product of the two.
+The <CODE>maxCoordinate</CODE> method is also for dealing with color;
+it is used to determine whether a color is so close to black
+that it can be treated as such.</P><P>We will find it convenient to use the <CODE>Ray</CODE> class,
+shown in Figure&#XA0;<A HREF="#fig:ray">41</A>.
+This simple class consists of two point parameters:
+<CODE>origin</CODE>, which is a point in 3D space,
+and a <CODE>velocity</CODE>, which is a vector.
+A ray can be thought of as starting at <CODE>origin</CODE> at time zero
+and travelling with <CODE>velocity</CODE> indefinitely.
+Applying a ray to a time value gives the location of the ray at that time.
+The <CODE>unit</CODE> method returns a ray with the same origin and direction,
+but a speed of one.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 41: The<A NAME="fig:ray"></A> <TT>Ray</TT> class.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package runtime.render
+
+case class Ray(origin: Point, velocity: Point) {
+  // Where will the ray extend to after the given time?
+  def apply(time: Double): Point = origin + velocity * time
+
+  // Return the ray with normalized velocity.
+  def unit = Ray(origin, velocity.unit)
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><H3 CLASS="subsection"><A NAME="toc11"></A><A NAME="htoc26">5.2</A>&#XA0;&#XA0;Lights<A NAME="sec:lights"></A></H3><P>Each light in GML has its own color, and there are three kinds of light.
+The different kinds of light are characterised by three behaviours:
+how the direction towards the light changes as the observer moves,
+how much the light is attenuated due to the position of the observer,
+and whether an object at a given distance will block
+the light reaching an observer.</P><P>The <CODE>Light</CODE> class in Figure&#XA0;<A HREF="#fig:light">42</A>
+captures the behaviour of lights.
+We use an abstract value for the color,
+and three abstract methods for the behaviours.
+The methods correspond directly to the behaviours in the previous paragraph,
+except that <CODE>isBlocked</CODE> takes the distance squared as its argument.
+As mentioned earlier,
+we use the lengths squared for comparison
+to save ourselves the expense of calculating the square roots.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 42: The<A NAME="fig:light"></A> <TT>Light</TT> base class.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package runtime.render
+
+sealed abstract class Light {
+  // The color of the light.
+  val color: Point
+
+  // Return a unit vector pointing towards the light from point.
+  def directionFrom(point: Point): Point
+
+  // Attenuation of the light at a point, given the unit ray pointing
+  // towards the light.
+  def attenuation(ray: Ray): Double
+
+  // Is the light blocked at point by an object at the given distance
+  // squared?
+  def isBlocked(point: Point, dSqr: Double): Boolean
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>Plain directional lights and point lights
+are shown in Figure&#XA0;<A HREF="#fig:pointlight">43</A>.
+The definition of <CODE>PlainLight</CODE> is simple:
+plain lights are always blocked by an object no matter how far away,
+they are never attenuated,
+and the direction to them from a point is a constant,
+equal to the unit vector in the opposite direction
+to the direction of the light.
+We use a <CODE>val</CODE> member to store the vector towards the light,
+which means that it will only be calculated once
+instead of each time we want to know the direction.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 43: The<A NAME="fig:pointlight"></A> <TT>PlainLight</TT> and
+<TT>PointLight</TT> classes.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">case class PlainLight(direction: Point, color: Point) extends Light {
+  // Unit vector pointing directly towards the light.
+  val towards = direction.neg.unit
+  def directionFrom(point: Point) = towards
+  def attenuation(ray: Ray) = 1
+  def isBlocked(point: Point, dSqr: Double) = true
+}
+
+case class PointLight(position: Point, color: Point) extends Light {
+  def directionFrom(point: Point) = (position - point).unit
+  def attenuation(ray: Ray) = 100 / (99 + (position - ray.origin).squared)
+  def isBlocked(point: Point, dSqr: Double) = (position - point).squared &gt; dSqr
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>The definition of <CODE>Pointlight</CODE> is almost as simple.
+Light is blocked by an object if
+the light source is further away than the object,
+attenuation is by the formula given in the specification,
+and the direction from a point is found with vector subtraction.</P><P>The behaviour of spotlights is the same as point lights,
+except that the attenuation is modified by a factor,
+or may be cut off entirely,
+depending on the angle between the direction from the observer
+and the direction directly towards the light.
+We therefore make the <CODE>SpotLight</CODE> class extend <CODE>PointLight</CODE>
+and override the <CODE>attenuation</CODE> method.
+The code is in Figure&#XA0;<A HREF="#fig:spotlight">44</A>.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 44: The<A NAME="fig:spotlight"></A> <TT>SpotLight</TT> class.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">import Math.{cos, pow, toRadians}
+
+case class SpotLight(
+              override val position: Point,
+              at: Point,
+              override val color: Point,
+              cutoff: Double,
+              exponent: Double
+           ) extends PointLight(position, color)
+{
+  // Unit vector pointing directly towards the light.
+  val towards = (position - at).unit
+
+  // Cosine of the cutoff angle.
+  val cosCutoff = cos(toRadians(cutoff))
+
+  override def attenuation(ray: Ray) = {
+    val cos = ray.velocity dot towards
+    if (cos &lt; cosCutoff) 0
+    else pow(cos, exponent) * super.attenuation(ray)
+  }
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P><CODE>SpotLight</CODE> has three parameters that its superclass does not.
+The <CODE>at</CODE> parameter is a point at which the cone of light is centered.
+It could be any distance from the light.
+The <CODE>cutoff</CODE> parameter is the angle at which the cone of light expands.
+Outside this cone no light is produced.
+Inside the cone the rate at which the light decays with increasing angle
+is controlled by the <CODE>exponent</CODE> parameter.
+The parameters in common with <CODE>PointLight</CODE>
+require the <CODE>override val</CODE> prefix
+because <CODE>PointLight</CODE> is a case class
+that already exports these names for <EM>its</EM> parameters.</P><P>We store the direction towards the light in a <CODE>val</CODE> member,
+as we did with plain lights.
+We also store the cosine of the cutoff angle,
+since we can compare the cosines of angles much like we can compare
+the squares of lengths,
+although we need to reverse the comparison because
+cosine is <EM>decreasing</EM> over the range we are interested in.
+The cosine of the angle is easy to calculate:
+it is just the dot product of the ray velocity and the <CODE>towards</CODE> value
+(we also need to divide by the length of each vector,
+but here we have arranged things so that these values are always one).</P><P>To complete the calculation,
+<CODE>SpotLight</CODE> still needs to call the method in the superclass
+to find out how much the light is attenuated
+due to the distance from the source.
+The <CODE>super</CODE> keyword is used for this purpose.</P><H3 CLASS="subsection"><A NAME="toc12"></A><A NAME="htoc27">5.3</A>&#XA0;&#XA0;Scene construction<A NAME="sec:scene"></A></H3><P>We are now in a position to add scene construction to the virtual machine.
+Figure&#XA0;<A HREF="#fig:scene">45</A> shows the <CODE>Scene</CODE> type,
+which is used to represent constructed scenes at runtime.
+Each case corresponds directly to
+one of the GML operators for scene construction,
+with parameters corresponding to the operator inputs.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 45: The<A NAME="fig:scene"></A> <TT>Scene</TT> type.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package runtime
+
+sealed abstract class Scene
+
+case class Sphere(surface: ClosureValue) extends Scene
+case class Cube(surface: ClosureValue) extends Scene
+case class Cylinder(surface: ClosureValue) extends Scene
+case class Cone(surface: ClosureValue) extends Scene
+case class Plane(surface: ClosureValue) extends Scene
+
+case class Union(left: Scene, right: Scene) extends Scene
+case class Intersect(left: Scene, right: Scene) extends Scene
+case class Difference(left: Scene, right: Scene) extends Scene
+
+case class RotateX(scene: Scene, degrees: Double) extends Scene
+case class RotateY(scene: Scene, degrees: Double) extends Scene
+case class RotateZ(scene: Scene, degrees: Double) extends Scene
+case class Translate(scene: Scene, dx: Double, dy: Double, dz: Double)
+        extends Scene
+case class Scale(scene: Scene, rx: Double, ry: Double, rz: Double)
+        extends Scene
+case class UScale(scene: Scene, r: Double) extends Scene
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>Scenes, as well as points and lights are included as values
+by adding extra cases to the <CODE>Value</CODE> hierarchy,
+as shown in Figure&#XA0;<A HREF="#fig:scenevalue">46</A>.
+We will also add dynamic type checks to the base class
+to cover these cases.
+This is shown in Figure&#XA0;<A HREF="#fig:scenecheck">47</A>.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 46: Values<A NAME="fig:scenevalue"></A> for scene construction
+(<TT>runtime.Value</TT>).</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">import render.{Point, Light}
+
+case class PointValue(point: Point) extends Value {
+  override def toString = point.toString
+}
+
+case class LightValue(light: Light) extends Value {
+  override def toString = light.toString
+}
+
+case class SceneValue(scene: Scene) extends Value {
+  override def toString = scene.toString
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 47: Dynamic type checks<A NAME="fig:scenecheck"></A> for scene construction
+(<TT>runtime.Value</TT>).</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">  def toPoint: Point = this match {
+    case PointValue(p) =&gt; p
+    case _ =&gt; typeError("Point")
+  }
+
+  def toLight: Light = this match {
+    case LightValue(l) =&gt; l
+    case _ =&gt; typeError("Light")
+  }
+
+  def toScene: Scene = this match {
+    case SceneValue(s) =&gt; s
+    case _ =&gt; typeError("Scene")
+  }
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>To implement the scene construction operators
+it is useful to add some more lifting methods,
+similar to those from section&#XA0;<A HREF="vm.html#sec:operators">3.6</A>.
+These are shown in Figure&#XA0;<A HREF="#fig:liftscene">48</A>.
+As before,
+the letters at the end of the method names
+stand for the types that the function argument expects.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 48: Lifting methods<A NAME="fig:liftscene"></A> for scene construction
+(<TT>runtime.Operators</TT>).</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">  import render._
+
+  def liftC(f: ClosureValue =&gt; Value)(data: DataStack): Unit =
+    data.push(f(data.pop.toClosure))
+
+  def liftP(f: Point =&gt; Value)(data: DataStack): Unit =
+    data.push(f(data.pop.toPoint))
+
+  def liftSS(f: (Scene, Scene) =&gt; Value)(data: DataStack): Unit = {
+    val r = data.pop.toScene
+    val l = data.pop.toScene
+    data.push(f(l, r))
+  }
+
+  def liftSR(f: (Scene, Double) =&gt; Value)(data: DataStack): Unit = {
+    val r = data.pop.toReal
+    val s = data.pop.toScene
+    data.push(f(s, r))
+  }
+
+  def liftPP(f: (Point, Point) =&gt; Value)(data: DataStack): Unit = {
+    val p2 = data.pop.toPoint
+    val p1 = data.pop.toPoint
+    data.push(f(p1, p2))
+  }
+
+  def liftRRR(f: (Double, Double, Double) =&gt; Value)(data: DataStack): Unit = {
+    val z = data.pop.toReal
+    val y = data.pop.toReal
+    val x = data.pop.toReal
+    data.push(f(x, y, z))
+  }
+
+  def liftSRRR(f: (Scene, Double, Double, Double) =&gt; Value)
+              (data: DataStack): Unit =
+  {
+    val z = data.pop.toReal
+    val y = data.pop.toReal
+    val x = data.pop.toReal
+    val s = data.pop.toScene
+    data.push(f(s, x, y, z))
+  }
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>The operator implementations are shown in Figure&#XA0;<A HREF="#fig:sceneoptable">49</A>.
+Most of the new operators simply construct a point, light or scene,
+then wrap it in the appropriate <CODE>Value</CODE>.
+We could have defined the spotlight operator using a lifting method as well,
+but since there is only one operator with this signature
+it is simpler to just define it in a private method.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 49: Operators<A NAME="fig:sceneoptable"></A> for scene construction
+(<TT>runtime.Operators</TT>).</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">  val opTable: Map[String, OpType] = Map(
+    ...
+    "cone"       -&gt; liftC(s =&gt; SceneValue(Cone(s))),
+    "cube"       -&gt; liftC(s =&gt; SceneValue(Cube(s))),
+    "cylinder"   -&gt; liftC(s =&gt; SceneValue(Cylinder(s))),
+    "difference" -&gt; liftSS((l, r) =&gt; SceneValue(Difference(l, r))),
+    "getx"       -&gt; liftP(p =&gt; RealValue(p.x)),
+    "gety"       -&gt; liftP(p =&gt; RealValue(p.y)),
+    "getz"       -&gt; liftP(p =&gt; RealValue(p.z)),
+    "intersect"  -&gt; liftSS((l, r) =&gt; SceneValue(Intersect(l, r))),
+    "light"      -&gt; liftPP((d, c) =&gt; LightValue(PlainLight(d, c))),
+    "plane"      -&gt; liftC(s =&gt; SceneValue(Plane(s))),
+    "point"      -&gt; liftRRR((x, y, z) =&gt; PointValue(Point(x, y, z))),
+    "pointlight" -&gt; liftPP((p, c) =&gt; LightValue(PointLight(p, c))),
+    "rotatex"    -&gt; liftSR((s, d) =&gt; SceneValue(RotateX(s, d))),
+    "rotatey"    -&gt; liftSR((s, d) =&gt; SceneValue(RotateY(s, d))),
+    "rotatez"    -&gt; liftSR((s, d) =&gt; SceneValue(RotateZ(s, d))),
+    "scale"      -&gt; liftSRRR((s, x, y, z) =&gt; SceneValue(Scale(s, x, y, z))),
+    "sphere"     -&gt; liftC(s =&gt; SceneValue(Sphere(s))),
+    "spotlight"  -&gt; doSpotLight,
+    "translate"  -&gt; liftSRRR((s, x, y, z) =&gt; SceneValue(Translate(s, x, y, z))),
+    "union"      -&gt; liftSS((l, r) =&gt; SceneValue(Union(l, r))),
+    "uscale"     -&gt; liftSR((s, r) =&gt; SceneValue(UScale(s, r)))
+  )
+
+  private def doSpotLight(data: DataStack): Unit = {
+    val exponent = data.pop.toReal
+    val cutoff = data.pop.toReal
+    val color = data.pop.toPoint
+    val at = data.pop.toPoint
+    val position = data.pop.toPoint
+    data.push(LightValue(SpotLight(position, at, color, cutoff, exponent)))
+  }
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><H3 CLASS="subsection"><A NAME="toc13"></A><A NAME="htoc28">5.4</A>&#XA0;&#XA0;Transformations<A NAME="sec:transformations"></A></H3><P>Scenes are constructed by combining primitive shapes using set operations,
+and applying <EM>affine</EM> transformations
+to move the objects and change their shapes.
+As discussed in the specification,
+if we use <EM>homogeneous</EM> coordinates then
+affine transformations become linear
+and we can represent them using square matrices of real numbers.</P><P>The <CODE>Transform</CODE> class in Figure&#XA0;<A HREF="#fig:transform">50</A>
+is used for the representation.
+The top three rows of the matrix are listed off as parameters,
+but since the bottom row consists of &#X201C;0 0 0 1&#X201D; for every transformation
+there&#X2019;s no need to include parameters for these.
+We use an immutable data structure because
+later on we will need to multiply the same matrix
+with two or more other matrices&#X2014;if the matrices were mutable we&#X2019;d have to think about
+when the right time to copy would be,
+and the problem is complex enough already without having to do that.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 50: The<A NAME="fig:transform"></A> <TT>Transform</TT> class.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package runtime.render
+
+// Represents a 4x4 matrix:
+//    [x1 y1 z1 t1]
+//    [x2 y2 z2 t2]
+//    [x3 y3 z3 t3]
+//    [ 0  0  0  1]
+case class Transform(
+          x1: Double, y1: Double, z1: Double, t1: Double,
+          x2: Double, y2: Double, z2: Double, t2: Double,
+          x3: Double, y3: Double, z3: Double, t3: Double
+        )
+{
+  def transformRay(ray: Ray) =
+    Ray(transformPoint(ray.origin), transformVector(ray.velocity))
+
+  def transformPoint(p: Point) =
+    Point(
+      x1*p.x + y1*p.y + z1*p.z + t1,
+      x2*p.x + y2*p.y + z2*p.z + t2,
+      x3*p.x + y3*p.y + z3*p.z + t3
+    )
+
+  def transformVector(p: Point) =
+    Point(
+      x1*p.x + y1*p.y + z1*p.z,
+      x2*p.x + y2*p.y + z2*p.z,
+      x3*p.x + y3*p.y + z3*p.z
+    )
+
+  def *(m: Transform) =
+    Transform(
+      x1*m.x1 + y1*m.x2 + z1*m.x3,
+      x1*m.y1 + y1*m.y2 + z1*m.y3,
+      x1*m.z1 + y1*m.z2 + z1*m.z3,
+      x1*m.t1 + y1*m.t2 + z1*m.t3 + t1,
+      x2*m.x1 + y2*m.x2 + z2*m.x3,
+      x2*m.y1 + y2*m.y2 + z2*m.y3,
+      x2*m.z1 + y2*m.z2 + z2*m.z3,
+      x2*m.t1 + y2*m.t2 + z2*m.t3 + t2,
+      x3*m.x1 + y3*m.x2 + z3*m.x3,
+      x3*m.y1 + y3*m.y2 + z3*m.y3,
+      x3*m.z1 + y3*m.z2 + z3*m.z3,
+      x3*m.t1 + y3*m.t2 + z3*m.t3 + t3
+    )
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>Matrix multiplication is defined in the usual way,
+except with the zeros and ones substituted for the bottom row variables.
+Obviously, we don&#X2019;t need to include the bottom row values
+when we construct the result.</P><P>Transforming a point or vector is modeled by
+multiplying the transformation vector on its left.
+For points, the fourth coordinate is treated as one
+and for vectors it is treated as zero.
+In practice this means that a point will be moved by a translation,
+but a vector will remain unchanged.
+That is, a translation changes the position of something
+but doesn&#X2019;t change its direction or speed.</P><P>The companion object in Figure&#XA0;<A HREF="#fig:transformobject">51</A>
+contains methods for constructing primitive transformations,
+including the identity representing the transformation that does nothing.
+This is the identity matrix in four dimensions
+(with its bottom row removed),
+or equivalently can be thought of as the three dimensional identity,
+which performs no rotation or scaling,
+combined with a translation of zero.
+The primitive transformation matrices are taken from the specification.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 51: The<A NAME="fig:transformobject"></A> <TT>Transform</TT> companion object.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">object Transform {
+  val identity =
+    Transform(1, 0, 0, 0,
+              0, 1, 0, 0,
+              0, 0, 1, 0)
+
+  def rotationX(deg: Double): Transform = {
+    val rad = Math.toRadians(deg)
+    val sin = Math.sin(rad)
+    val cos = Math.cos(rad)
+    Transform(1, 0,    0,   0,
+              0, cos, -sin, 0,
+              0, sin,  cos, 0)
+  }
+
+  def rotationY(deg: Double): Transform = {
+    val rad = Math.toRadians(deg)
+    val sin = Math.sin(rad)
+    val cos = Math.cos(rad)
+    Transform(cos, 0, sin, 0,
+              0,   1, 0,   0,
+             -sin, 0, cos, 0)
+  }
+
+  def rotationZ(deg: Double): Transform = {
+    val rad = Math.toRadians(deg)
+    val sin = Math.sin(rad)
+    val cos = Math.cos(rad)
+    Transform(cos, -sin, 0, 0,
+              sin,  cos, 0, 0,
+              0,    0,   1, 0)
+  }
+
+  def translation(dx: Double, dy: Double, dz: Double) =
+    Transform(1, 0, 0, dx,
+              0, 1, 0, dy,
+              0, 0, 1, dz)
+
+  def dilation(rx: Double, ry: Double, rz: Double) =
+    Transform(rx, 0, 0, 0,
+              0, ry, 0, 0,
+              0, 0, rz, 0)
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>When we do the ray tracing later on,
+we shall be firing rays at transformed shapes
+to determine the boundaries (if any)
+where the ray enters or leaves a shape.
+This is done by performing the inverse transformation on the ray,
+then calculating the intersections with the shape in its original form.
+We shall refer to the transformed shapes as being in <EM>world</EM> space,
+and the originals as being in <EM>shape</EM> space.
+The transformation goes from shape coordinates to world coordinates,
+and the inverse goes from world coordinates to shape coordinates.</P><P>We will need to change coordinates in both directions,
+so we will need a representation of
+both the transformation matrix and its inverse.
+Since we can easily calculate the inverse of
+each of the primitive transformations,
+we can build the transformation and its inverse at the same time.
+This is more efficient than using an expensive matrix inversion procedure
+to calculate the inverse after the transformation is fully built.</P><P>The <CODE>View</CODE> class, shown in Figure&#XA0;<A HREF="#fig:view">52</A>,
+contains both the transformation matrix, called <CODE>s2w</CODE>,
+and its inverse, called <CODE>w2s</CODE>.
+The first six methods transform rays,
+as well as the constituent points and vectors,
+from shape to world coordinates and from world to shape coordinates.
+Each of these methods delegates its implementation to the appropriate matrix.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 52: The<A NAME="fig:view"></A> <TT>View</TT> class and companion object.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package runtime.render
+
+import Transform._
+
+case class View(s2w: Transform, w2s: Transform) {
+  def rayToWorldSpace(ray: Ray) = s2w.transformRay(ray)
+  def rayToShapeSpace(ray: Ray) = w2s.transformRay(ray)
+
+  def pointToWorldSpace(p: Point) = s2w.transformPoint(p)
+  def pointToShapeSpace(p: Point) = w2s.transformPoint(p)
+
+  def vectorToWorldSpace(p: Point) = s2w.transformVector(p)
+  def vectorToShapeSpace(p: Point) = w2s.transformVector(p)
+
+  def rotateX(deg: Double) =
+    View(s2w * rotationX(deg), rotationX(-deg) * w2s)
+
+  def rotateY(deg: Double) =
+    View(s2w * rotationY(deg), rotationY(-deg) * w2s)
+
+  def rotateZ(deg: Double) =
+    View(s2w * rotationZ(deg), rotationZ(-deg) * w2s)
+
+  def translate(dx: Double, dy: Double, dz: Double) =
+    View(s2w * translation(dx, dy, dz), translation(-dx, -dy, -dz) * w2s)
+
+  def scale(rx: Double, ry: Double, rz: Double) =
+    View(s2w * dilation(rx, ry, rz), dilation(1/rx, 1/ry, 1/rz) * w2s)
+
+  def uScale(r: Double) = scale(r, r, r)
+}
+
+object View {
+  val identity = View(Transform.identity, Transform.identity)
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>The remaining methods add a primitive transformation to the view
+and return a new view.
+Each of these applies the corresponding transform to the matrix,
+and the inverse transform to the inverse matrix,
+using matrix multiplication.
+For rotations, the inverse is found by negating the angle of rotation.
+For translations, the inverse is found by negating each component.
+For scaling, the inverse is found by taking the reciprocal of each component.
+Isotropic scaling is simply defined in terms of regular scaling.</P><P>The identity is defined in a companion object.
+It is easy to see that this satisfies an important requirement of transforms,
+namely that the two matrices really are inverses,
+because the identity transform is its own inverse.</P><P>It is useful for us to verify that
+the requirement is also satisied for all transforms that we build.
+Another way of stating the requirement is that
+<CODE>s2w * w2s</CODE> must be equal to the identity
+(modulo rounding errors).
+Assume that this is true for view <CODE>v</CODE>,
+and consider the view <CODE>v.rotateX(deg)</CODE>.
+The requirement for this view amounts to
+</P><DIV CLASS="center">
+<CODE>v.s2w * rotationX(deg) * rotationX(-deg) * v.w2s</CODE>
+</DIV><P>
+being the identity.
+The middle two terms clearly cancel out, leaving
+</P><DIV CLASS="center">
+<CODE>v.s2w * v.w2s</CODE>
+</DIV><P>
+which is the identity by our above assumption.
+The same reasoning applies to all other methods of constructing views,
+therefore they all satisfy the requirement.</P><P>This illustrates why the inverse is calculated by
+multiplying on the left instead of on the right.
+Matrix multiplication is not commutative,
+so it is important that we get the order correct.
+If we had defined <CODE>rotateX</CODE> with
+</P><PRE CLASS="verbatim">  def rotateX(deg: Double) =
+    View(s2w * rotationX(deg), w2s * rotationX(-deg))
+</PRE><P>then the formula would be
+</P><DIV CLASS="center">
+<CODE>v.s2w * rotationX(deg) * v.w2s * rotationX(-deg)</CODE>
+</DIV><P>
+which would not in general be the identity.</P><H3 CLASS="subsection"><A NAME="toc14"></A><A NAME="htoc29">5.5</A>&#XA0;&#XA0;Boundaries and boundary lists<A NAME="sec:boundaries"></A></H3><P>We will need to calculate the boundaries
+where a ray enters or leaves a shape in the scene.
+Ultimately, we will only be interested in
+the first boundary after time zero that is an entry to a shape,
+but because of the union, intersection and difference operations,
+it is hard to know in advance which will be the first.
+We thus keep all of the boundaries in a list,
+and only choose the first entry after the final list is calculated.</P><P>Figure&#XA0;<A HREF="#fig:boundary">53</A> shows the <CODE>Boundary</CODE> class,
+which holds information about the intersection of a ray and a shape,
+and its companion object.
+The information stored is the time of impact,
+the point of impact in shape coordinates,
+the shape itself and the number of the face that was hit.
+The <CODE>Shape</CODE> type is defined in section&#XA0;<A HREF="#sec:shape">5.6.2</A>.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 53: The<A NAME="fig:boundary"></A> <TT>Boundary</TT> class
+and companion object.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package runtime.render
+
+case class Boundary(time: Double, shapePoint: Point, shape: Shape, face: Int) {
+  def &lt;(that: Boundary) = time &lt; that.time
+
+  def worldPoint = shape.view.pointToWorldSpace(shapePoint)
+
+  def faceCoordinates = shape.faceCoordinates(face, shapePoint)
+}
+
+object Boundary {
+  type Boundaries = List[Boundary]
+  
+  def union(as: Boundaries, bs: Boundaries): Boundaries =
+    (as, bs) match {
+      case (Nil, _) =&gt; bs
+      case (_, Nil) =&gt; as
+      case (a :: as0, b :: bs0) =&gt;
+        if (a &lt; b)      a :: difference(as0, bs)
+        else if (b &lt; a) b :: difference(bs0, as)
+        else            a :: intersect(as0, bs0)
+    }
+
+  def intersect(as: Boundaries, bs: Boundaries): Boundaries =
+    (as, bs) match {
+      case (Nil, _) =&gt; Nil
+      case (_, Nil) =&gt; Nil
+      case (a :: as0, b :: bs0) =&gt;
+        if (a &lt; b)      difference(bs, as0)
+        else if (b &lt; a) difference(as, bs0)
+        else            a :: union(as0, bs0)
+    }
+
+  def difference(as: Boundaries, bs: Boundaries): Boundaries =
+    (as, bs) match {
+      case (Nil, _) =&gt; Nil
+      case (_, Nil) =&gt; as
+      case (a :: as0, b :: bs0) =&gt;
+        if (a &lt; b)      a :: union(as0, bs)
+        else if (b &lt; a) intersect(as, bs0)
+        else            difference(bs0, as0)
+    }
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>A comparison operator is provided for boundaries.
+This simply compares the impact times,
+and is used heavily in the code below.
+Even though we are defining comparison,
+we don&#X2019;t make this extend the <CODE>Ordered</CODE> trait.
+For that trait, the comparison operator must be
+consistent with the definition of <CODE>equals</CODE>,
+but this is not the case for our class
+because boundaries at the same time may not necessarily be on the same shape.
+So we just define the method without mentioning the trait,
+and do without the rich interface it provides.</P><P>The <CODE>worldPoint</CODE> method simply returns
+the <CODE>shapePoint</CODE> parameter in world coordinates.
+The <CODE>faceCoordinates</CODE> method
+returns the face coordinates of the surface point.
+Both of these methods delegate their implementation to <CODE>Shape</CODE>.</P><P>The <CODE>Boundary</CODE> companion object provides
+methods for working with lists of boundaries.
+We keep the lists sorted in order of time,
+and if there are eny boundaries at exactly the same time
+we arbitrarily pick one of them.
+This means that the boundaries in the list alternate between entries and exits.</P><P>The methods on boundary lists are
+the union, intersect and difference operations of
+a &#X201C;generalised Boolean algebra&#X201D;.
+Each is defined by a case expression that matches the two list arguments.
+The base cases, where one of the arguments is <CODE>Nil</CODE>,
+can be easily understood if we interpret <CODE>Nil</CODE> as the empty set.
+For example, the first case of <CODE>union</CODE> states that
+the union of the empty set with any set <CODE>bs</CODE> is equal to <CODE>bs</CODE>.</P><P>The recursive cases can be understood if we interpret the head of a list
+as being the set that starts at that entry point and goes on indefinitely,
+except with the set represented by the tail removed.
+Effectively, the list &#X201C;cons&#X201D; operator means
+much the same thing as the difference operation,
+but its first argument is a single entry rather than a list of boundaries.</P><P>Consider the <CODE>a &lt; b</CODE> case in the union operation.
+The result has <CODE>a</CODE> as the first entry,
+because this is the earliest entry into either set.
+The tail of the list represents all the things that need to be removed
+after the entry at <CODE>a</CODE>.
+For the union operation,
+this is <CODE>as0</CODE>, the holes from <CODE>as</CODE>,
+minus everything in <CODE>bs</CODE>.
+That is, the elements in <CODE>bs</CODE> are not holes anymore.</P><P>Since union is symmetric,
+the case for <CODE>b &lt; a</CODE> is the same as above
+except with the two arguments reversed.
+In the remaining case we deal with the tails of both lists;
+the holes in the result are those elements that are holes in both arguments.</P><P>A similar line of reasoning holds for the other two methods&#X2014;the cautious reader may wish to check this.
+Two other things worth noting are that
+the resulting lists are in order and have no duplicates,
+as mentioned above,
+and that the algorithm always terminates.
+To see this last point,
+note that one element is removed from the head of at least one of the lists
+in each recursive case,
+so we must run out of elements eventually.</P><H3 CLASS="subsection"><A NAME="toc15"></A><A NAME="htoc30">5.6</A>&#XA0;&#XA0;The <TT>World</TT> class<A NAME="sec:world"></A></H3><P><CODE>World</CODE> is the abstract class used by the rendering engine
+to represent shapes, their combinations and their transformations.
+This section describes the class and its subclasses,
+and gives a factory method for construction of worlds.</P><H4 CLASS="subsubsection"><A NAME="htoc31">5.6.1</A>&#XA0;&#XA0;The base class and some subclasses<A NAME="sec:worldbase"></A></H4><P>The base class and some of the subclasses are shown in Figure&#XA0;<A HREF="#fig:world">54</A>.
+The rendering engine uses the <CODE>World</CODE> for one purpose:
+to find the boundaries crossed by a ray.
+The <CODE>boundaries</CODE> abstract method takes a world-space ray as an argument
+and returns the list of boundaries.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 54: The<A NAME="fig:world"></A> <TT>World</TT> base case and some subclasses.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package runtime.render
+
+import runtime._
+
+abstract class World {
+  // Return the list of boundaries where this world-space ray
+  // crosses shapes in the world.
+  def boundaries(ray: Ray): List[Boundary]
+}
+
+class Union(val left: World, val right: World) extends World {
+  def boundaries(ray: Ray) =
+    Boundary.union(left.boundaries(ray), right.boundaries(ray))
+}
+
+class Intersect(val left: World, val right: World) extends World {
+  def boundaries(ray: Ray) =
+    Boundary.intersect(left.boundaries(ray), right.boundaries(ray))
+}
+
+class Difference(val left: World, val right: World) extends World {
+  def boundaries(ray: Ray) =
+    Boundary.difference(left.boundaries(ray), right.boundaries(ray))
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>For the subclasses shown here,
+<CODE>Union</CODE>, <CODE>Intersect</CODE> and <CODE>Difference</CODE>,
+the boundaries are found by
+getting the boundary lists for the left and right components,
+then combining them with
+the appropriate boundary list operation from the previous section.</P><H4 CLASS="subsubsection"><A NAME="htoc32">5.6.2</A>&#XA0;&#XA0;The <TT>Shape</TT> subclass<A NAME="sec:shape"></A></H4><P>The <CODE>Shape</CODE> class,
+shown with its companion object in Figure&#XA0;<A HREF="#fig:shape">55</A>,
+is an abstract base class for shapes.
+The first thing to notice is that there is a view parameter as well as
+the closure value for the surface function.
+This is what distinguishes these values from
+the <CODE>Scene</CODE> values we built in section&#XA0;<A HREF="#sec:scene">5.3</A>.
+These values include the complete transformations of the shapes,
+whereas in scenes the transformation was determined by
+the primitive transforms in the enclosing context.
+The <CODE>World</CODE> class thus does not have any subclasses
+to specifically represent the primitive transforms.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 55: The<A NAME="fig:shape"></A> <TT>Shape</TT> class and companion object.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package runtime.render
+
+import runtime.ClosureValue
+
+abstract class Shape(val view: View, val surface: ClosureValue) extends World {
+  def boundaries(ray: Ray) =
+    shapeBoundaries(view.rayToShapeSpace(ray))
+
+  // Same as boundaries, except the argument is in shape space.
+  def shapeBoundaries(ray: Ray): List[Boundary]
+
+  // Given a face and a surface point in shape coordinates, return
+  // the unit normal in world coordinates.
+  def normal(face: Int, surfacePoint: Point): Point = {
+    val n = shapeNormal(face, surfacePoint)
+
+    // Choose an independent vector.
+    val q = if (n.x != 0 || n.y != 0) Point(0, 0, 1)
+            else Point(1, 0, 0)
+
+    // Find two perpendicular tangents in shape coordinates.
+    val t1 = n cross q
+    val t2 = n cross t1
+
+    // Convert tangents to world space, which preserves their
+    // tangent-hood but not their size.
+    val w1 = view.vectorToWorldSpace(t1)
+    val w2 = view.vectorToWorldSpace(t2)
+
+    // Recover a unit normal in world space.
+    (w1 cross w2).unit
+  }
+
+  // Given a face and a surface point in shape coordinates, return
+  // a normal vector in shape coordinates.
+  def shapeNormal(face: Int, surfacePoint: Point): Point
+
+  // Convert a surface point in shape coordinates to face coordinates.
+  def faceCoordinates(face: Int, surfacePoint: Point): (Double, Double)
+
+  ...
+}
+
+object Shape {
+  // Calculate angle in the range 0..1.
+  def theta(y: Double, x: Double): Double = {
+    val q = Math.atan2(y, x) / (2 * Math.Pi)
+    if (q &gt; 0) q else q + 1
+  }  
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>Since it is easier to work in shape coordinates when dealing with a shape,
+the implementation of <CODE>boundaries</CODE> converts the ray to shape-space
+then calls <CODE>shapeBoundaries</CODE>, which is implemented in the subclasses.</P><P>Aside from finding the boundaries,
+we will also need to calculate the surface normal vectors of the shape
+(that is, vectors pointing perpendicularly out from the surface),
+and find the face coordinates of a surface point.
+The latter is left as an abstract method for the subclasses to implement.
+For the former, we can easily calculate the normal in shape space,
+but we have a problem because affine transformations don&#X2019;t preserve angles
+so this won&#X2019;t generally be a normal in world space.</P><P>The <CODE>normal</CODE> method uses a couple of pieces of cleverness
+to get around this problem.
+First,
+the cross product of any two independent (that is, non-parallel) vectors
+is always at right angles to both of the vectors.
+Second, while affine transformations don&#X2019;t preserve surface normals,
+they do preserve tangents.
+So we start by finding tangents to the shape-space normal,
+defined abstractly,
+by picking an independent vector and using the cross product operator twice.
+When transformed to world space these will still be tangents,
+so when we use the cross product operator once more
+we get a vector at right angles to the tangents,
+which is a surface normal in world space.
+We return the unit of this vector.</P><P>The <CODE>Shape</CODE> companion object provides a method, <CODE>theta</CODE>,
+which is from the specification.
+It is used by several shapes to calculate their face coordinates.</P><P>The <CODE>Shape</CODE> class also defines some protected methods
+for the subclasses to use when finding the boundaries.
+These are shown in Figure&#XA0;<A HREF="#fig:shape2">56</A>.
+The <CODE>bound</CODE> method provides a slightly shorter way of
+constructing a boundary for the shape.
+The <CODE>univ</CODE> method returns a boundary list with
+just one entry at the origin of the ray and no exits.
+We make sure this is intersected with our results,
+so that we discard all boundaries with time less than zero.
+The <CODE>unitDim</CODE> method intersects a boundary list with
+the part of the ray where a chosen coordinate is between zero and one.
+This is used to cut the ends off cones and cylinders,
+and to form all of the sides of a cube.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 56: Support methods<A NAME="fig:shape2"></A> for shapes
+(<TT>runtime.render.Shape</TT>).</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">  // Construct a boundary for the given ray in shape space, time and face.
+  protected def bound(ray: Ray, time: Double, face: Int) =
+    Boundary(time, ray(time), this, face)
+
+  // Boundary list representing the whole ray.
+  protected def univ(ray: Ray) =
+    List(bound(ray, 0, 0))
+
+  // Constrain one dimension by face0 at 0 and face1 at 1.
+  protected def unitDim(list: List[Boundary], ray: Ray, origin: Double,
+                  velocity: Double, face0: Int, face1: Int): List[Boundary] =
+    if (list == Nil) Nil
+    else if (velocity == 0) {
+      if (origin &lt; 0 || origin &gt; 1) Nil
+      else list
+    } else {
+      val bound0 = bound(ray, -origin / velocity, face0)
+      val bound1 = bound(ray, (1 - origin) / velocity, face1)
+      val list0 = if (velocity &lt; 0) {
+        List(bound1, bound0)
+      } else {
+        List(bound0, bound1)
+      }
+      Boundary.intersect(list0, list)
+    }
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><H4 CLASS="subsubsection"><A NAME="htoc33">5.6.3</A>&#XA0;&#XA0;Quadratic roots<A NAME="sec:quadratic"></A></H4><P>We will need to solve quadratic formulas
+to find the intersections with curved surfaces.
+This is fairly standard textbook material,
+so we won&#X2019;t go into it in detail.
+The code is shown in Figure&#XA0;<A HREF="#fig:quadratic">57</A>.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 57: The<A NAME="fig:quadratic"></A> <TT>Quadratic</TT> object.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package runtime.render
+
+object Quadratic {
+  sealed abstract class Roots
+  case object NoRoots extends Roots
+  case class OneRoot(root: Double) extends Roots
+  case class DoubleRoot(root: Double) extends Roots
+  case class TwoRoots(low: Double, high: Double) extends Roots
+
+  // Return roots of a*t*t + 2*b*t + c.
+  def solve(a: Double, b: Double, c: Double): Roots =
+    if (a &lt; 0) solvePos(-a, -b, -c)
+    else if (a &gt; 0) solvePos(a, b, c)
+    else if (b != 0) OneRoot(-c / (2 * b))
+    else NoRoots
+
+  // As above but assumes a &gt; 0.  Method to reduce rounding error
+  // adapted from "Numerical recipes".
+  def solvePos(a: Double, b: Double, c: Double): Roots = {
+    val dSqr = b*b - a*c
+    if (dSqr &lt; 0) NoRoots
+    else if (dSqr == 0) DoubleRoot(-b / a)
+    else {
+      val d = Math.sqrt(dSqr)
+      if (b &lt; 0) {
+        val q = d - b
+        TwoRoots(c / q, q / a)
+      } else if (b &gt; 0) {
+        val q = -(d + b)
+        TwoRoots(q / a, c / q)
+      } else {
+        val q = d / a
+        TwoRoots(-q, q)
+      }
+    }
+  }
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>The main thing to note is that we distinguish between the case where
+there is a double root and where there is one root.
+A double root comes about when
+a ray just touches a curved surface but doesn&#X2019;t actually enter.
+A single root comes about if the ray enters a curved surface but never leaves,
+such as when a ray is parallel to the curved face of a cone.</P><H4 CLASS="subsubsection"><A NAME="htoc34">5.6.4</A>&#XA0;&#XA0;Primitive shapes<A NAME="sec:shapes"></A></H4><P>Each of the primitive shapes is implemented as a subclass of <CODE>Shape</CODE>.
+These subclasses need to provide the code
+to return the boundaries of the shape on a ray,
+the surface normal in shape coordinates at a point,
+and the face coordinates of a surface point.</P><P>The <CODE>Sphere</CODE> class is shown in Figure&#XA0;<A HREF="#fig:sphere">58</A>.
+To find the boundaries of a ray,
+we need find the times where the distance from the origin is equal to one.
+Equivalently,
+the distance squared, given by <CODE>ray(time).squared</CODE>,
+must be equal to one.
+We set the quadratic coefficents appropriately and solve.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 58: The<A NAME="fig:sphere"></A> <TT>Sphere</TT> class.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package runtime.render
+
+import runtime.ClosureValue
+
+class Sphere(view: View, surface: ClosureValue) extends Shape(view, surface) {
+  def shapeBoundaries(ray: Ray) = {
+    // Solve ray(time).squared = 1.
+    val a = ray.velocity.squared
+    val b = ray.origin dot ray.velocity
+    val c = ray.origin.squared - 1
+    Quadratic.solve(a, b, c) match {
+      case Quadratic.TwoRoots(low, high) =&gt;
+        val list = List(bound(ray, low, 0), bound(ray, high, 0))
+        Boundary.intersect(list, univ(ray))
+      case _ =&gt; Nil
+    }
+  }
+
+  def shapeNormal(face: Int, surfacePoint: Point) = surfacePoint
+
+  def faceCoordinates(face: Int, surfacePoint: Point) =
+    (Shape.theta(surfacePoint.x, surfacePoint.z), (surfacePoint.y + 1) / 2)
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>If there are two roots,
+the line intersects the sphere and we need to create two boundaries,
+one for each root.
+We remove boundaries with time less than zero by
+intersecting with <CODE>univ(ray)</CODE>.
+If there are no roots,
+the line does not intersect the sphere and the result is <CODE>Nil</CODE>.
+If there is a double root,
+it means that the line is a tangent to the sphere.
+We treat this as not entering the sphere at all.</P><P>The case of one root can&#X2019;t arise for spheres,
+because this only occurs if <CODE>a</CODE> is zero and <CODE>b</CODE> is nonzero.
+For spheres, <CODE>a</CODE> can only be zero if the velocity of the ray is zero,
+which doesn&#X2019;t make sense.
+(Even if it did, <CODE>b</CODE> would also be zero,
+so we wouldn&#X2019;t get a single root anyway.)</P><P>Calculating a surface normal is easy for spheres:
+it has the same value as the surface point itself.
+The formulas for face coordinates are taken from the specification,
+for spheres and also for the other shapes below.</P><P>Figure&#XA0;<A HREF="#fig:cube">59</A> shows the <CODE>Cube</CODE> class.
+To get the boundaries,
+we start with the whole ray and call <CODE>unitDim</CODE> for each dimension,
+passing the boundary list from one call to the next.
+The result from the last call is returned.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 59: The<A NAME="fig:cube"></A> <TT>Cube</TT> class.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package runtime.render
+
+import runtime.ClosureValue
+
+class Cube(view: View, surface: ClosureValue) extends Shape(view, surface) {
+  def shapeBoundaries(ray: Ray) = {
+    var list = univ(ray)
+
+    // faces 0, 1: z = 0, 1
+    list = unitDim(list, ray, ray.origin.z, ray.velocity.z, 0, 1)
+
+    // faces 2, 3: x = 0, 1
+    list = unitDim(list, ray, ray.origin.x, ray.velocity.x, 2, 3)
+
+    // faces 4, 5: y = 1, 0
+    unitDim(list, ray, ray.origin.y, ray.velocity.y, 5, 4)
+  }
+
+  def shapeNormal(face: Int, surfacePoint: Point) = {
+    object Normal {
+      val faces: Array[Point] =
+        Array(
+          Point(0,  0, -1),
+          Point(0,  0,  1),
+          Point(-1, 0,  0),
+          Point(1,  0,  0),
+          Point(0,  1,  0),
+          Point(0, -1,  0)
+        )
+    }
+    Normal.faces(face)
+  }
+
+  def faceCoordinates(face: Int, surfacePoint: Point) = {
+    val u = if (face == 2 || face == 3) surfacePoint.z else surfacePoint.x
+    val v = if (face == 4 || face == 5) surfacePoint.z else surfacePoint.y
+    (u, v)
+  }
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>There are only six distinct surface normals, one for each face.
+We store an array of these normals, indexed by face,
+in the <CODE>Normal</CODE> object inside the method.
+The method itself just returns the corresponding entry in the array.</P><P>Figure&#XA0;<A HREF="#fig:cylinder">60</A> shows the cylinder class.
+Finding the boundaries of the curved surface of cylinders is similar to
+finding the boundaries of spheres,
+except that we project everything onto the X-Z plane
+(that is, we treat the Y-components of the origin and velocity as zero).
+There is one more subtle difference in the case of no roots:
+the ray might be <EM>inside</EM> the cylinder,
+traveling parallel to it.
+In this case, there will be no roots but the origin will be inside the
+unit circle in the X-Z plane.
+We can test for this by checking if <CODE>c</CODE> is less than zero.
+If fully inside the cylinder, the result of this part is <CODE>univ(ray)</CODE>,
+otherwise it is <CODE>Nil</CODE>.
+Before returning the list,
+the <CODE>unitDim</CODE> method is called to cut the ends off the cylinder.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 60: The<A NAME="fig:cylinder"></A> <TT>Cylinder</TT> class.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package runtime.render
+
+import runtime.ClosureValue
+
+class Cylinder(view: View, surface: ClosureValue) extends Shape(view, surface)
+{
+  def shapeBoundaries(ray: Ray) = {
+    // Solve ray(time) dotXZ ray(time) = 1
+    val a = ray.velocity dotXZ ray.velocity
+    val b = ray.origin dotXZ ray.velocity
+    val c = (ray.origin dotXZ ray.origin) - 1
+    val list = Quadratic.solve(a, b, c) match {
+      case Quadratic.TwoRoots(low, high) =&gt;
+        val list0 = List(bound(ray, low, 0), bound(ray, high, 0))
+        Boundary.intersect(list0, univ(ray))
+      case Quadratic.NoRoots if (c &lt; 0) =&gt; univ(ray)
+      case _ =&gt; Nil
+    }
+    // face 1, 2: y = 1, 0
+    unitDim(list, ray, ray.origin.y, ray.velocity.y, 2, 1)
+  }
+
+  def shapeNormal(face: Int, surfacePoint: Point) =
+    if (face == 1) Point(0, 1, 0)
+    else if (face == 2) Point(0, -1, 0)
+    else Point(surfacePoint.x, 0, surfacePoint.z)
+
+  def faceCoordinates(face: Int, surfacePoint: Point) = {
+    val u = if (face == 0) Shape.theta(surfacePoint.x, surfacePoint.z)
+            else (surfacePoint.x + 1) / 2
+    val v = if (face == 0) surfacePoint.y
+            else (surfacePoint.z + 1) / 2
+    (u, v)
+  }
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>Faces 1 and 2, which are the two ends of the cylinder,
+have constant surface normals.
+For the curved face,
+calculation of the surface normal is the same as for spheres
+except projected onto the X-Z plane.</P><P>The <CODE>Cone</CODE> class is shown in Figure&#XA0;<A HREF="#fig:cone">61</A>.
+Finding the boundaries involves solving similar equations as before,
+except that the Y-terms are negated in the sums.
+We do this with the <CODE>conjY</CODE> method on points.
+These equations actually describe a double-sided cone,
+which is shaped like an infinitely large hourglass.
+The call to <CODE>unitDim</CODE> at the end of the method slices off
+most of one side to produce the flat face of the cone,
+and slices the other side off entirely.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 61: The<A NAME="fig:cone"></A> <TT>Cone</TT> class.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package runtime.render
+
+import runtime.ClosureValue
+
+class Cone(view: View, surface: ClosureValue) extends Shape(view, surface) {
+  def shapeBoundaries(ray: Ray) = {
+    // Solve ray(time) conjY ray(time) = 0
+    val a = ray.velocity conjY ray.velocity
+    val b = ray.origin conjY ray.velocity
+    val c = ray.origin conjY ray.origin
+    val list = Quadratic.solve(a, b, c) match {
+      case Quadratic.NoRoots =&gt; Nil
+      case Quadratic.OneRoot(root) =&gt;
+        // Parallel to the cone.
+        val list0 = List(bound(ray, root, 0))
+        if (b &lt; 0) Boundary.intersect(univ(ray), list0) // entering the cone
+        else Boundary.difference(univ(ray), list0)      // leaving the cone
+      case Quadratic.DoubleRoot(root) =&gt;
+        // Tangent to the cone.
+        if (a &lt; 0) univ(ray)                            // inside the cone
+        else Nil                                        // outside the cone
+      case Quadratic.TwoRoots(low, high) =&gt;
+        val list0 = List(bound(ray, low, 0), bound(ray, high, 0))
+        if (a &gt; 0) Boundary.intersect(univ(ray), list0) // across the cone axis
+        else Boundary.difference(univ(ray), list0)      // along the cone axis
+    }
+    // face 1: y = 1
+    unitDim(list, ray, ray.origin.y, ray.velocity.y, 0, 1)
+  }
+
+  def shapeNormal(face: Int, surfacePoint: Point) =
+    if (face == 1) Point(0, 1, 0)
+    else Point(surfacePoint.x, -surfacePoint.y, surfacePoint.z)
+
+  def faceCoordinates(face: Int, surfacePoint: Point) = {
+    val u = if (face == 0) Shape.theta(surfacePoint.x, surfacePoint.z)
+            else (surfacePoint.x + 1) / 2
+    val v = if (face == 0) surfacePoint.y
+            else (surfacePoint.z + 1) / 2
+    (u, v)
+  }
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>If there are no roots, the cone is not intersected at all.</P><P>If there is one root, this means the ray is parallel to one side of the cone,
+and the root is the location where the ray crosses
+the other side of the cone.
+We need to account for two cases:
+one where we start outside the cone and enter at the root,
+and the other where we start inside the cone and leave at the root.</P><P>If there is a double root,
+the ray touches the cone at one location.
+This could happen because the ray brushes the outside of the cone,
+which we treat as being fully outside the cone,
+or because the ray is fully inside the cone
+and travels exactly through the tip where the two sides of the cone meet.</P><P>In the case of two roots, there are again two explanations.
+The ray could be traveling <EM>across</EM> the axis of the cone,
+in which case it starts outside the cone,
+enters on one side,
+then leaves while still on the same side.
+Alternatively,
+the ray could be traveling <EM>along</EM> the axis of the cone,
+in which case it starts inside one side of the cone,
+leaves the cone in the middle,
+then enters again on the other side.</P><P>The surface normal is constant for face 1,
+and for face 0 is found by negating the Y-component of the surface point.</P><P>The last primitive shape class is <CODE>Plane</CODE>,
+shown in Figure&#XA0;<A HREF="#fig:plane">62</A>.
+For the boundaries,
+we first need to check whether the ray is parallel to the plane,
+in which case it is either fully in or fully out,
+depending on the Y-component of the origin.
+Otherwise,
+we find the boundary by solving a linear equation,
+and determine whether we are travelling into or out of the plane
+by looking at the Y-component of the velocity.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 62: The<A NAME="fig:plane"></A> <TT>Plane</TT> class.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package runtime.render
+
+import runtime.ClosureValue
+
+class Plane(view: View, surface: ClosureValue) extends Shape(view, surface) {
+  def shapeBoundaries(ray: Ray) =
+    if (ray.velocity.y == 0) {
+      if (ray.origin.y &gt;= 0) Nil
+      else univ(ray)
+    } else {
+      val list0 = List(bound(ray, -ray.origin.y / ray.velocity.y, 0))
+      if (ray.velocity.y &lt; 0) Boundary.intersect(univ(ray), list0)
+      else Boundary.difference(univ(ray), list0)
+    }
+
+  def shapeNormal(face: Int, surfacePoint: Point) = Point(0, 1, 0)
+
+  def faceCoordinates(face: Int, surfacePoint: Point) =
+    (surfacePoint.x, surfacePoint.z)
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>The surface normal of a plane is constant at every point,
+and the face coordinates are just the X and Z coordinates of the surface point.</P><H4 CLASS="subsubsection"><A NAME="htoc35">5.6.5</A>&#XA0;&#XA0;The <TT>World</TT> factory.<A NAME="sec:worldfactory"></A></H4><P>The <CODE>World</CODE> companion object,
+shown in Figure&#XA0;<A HREF="#fig:worldobject">63</A>,
+contains a factory method for
+creating a world out of a scene and an initial view.
+Before we start rendering,
+we will call this method with the scene to be rendered
+and the identity view.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 63: The<A NAME="fig:worldobject"></A> <TT>World</TT> companion object.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">object World {
+  def make(view: View, scene: Scene): World =
+    scene match {
+      case Sphere(surface)   =&gt; new Sphere(view, surface)
+      case Cube(surface)     =&gt; new Cube(view, surface)
+      case Cylinder(surface) =&gt; new Cylinder(view, surface)
+      case Cone(surface)     =&gt; new Cone(view, surface)
+      case Plane(surface)    =&gt; new Plane(view, surface)
+
+      case Union(left, right) =&gt;
+        new Union(make(view, left), make(view, right))
+      case Intersect(left, right) =&gt;
+        new Intersect(make(view, left), make(view, right))
+      case Difference(left, right) =&gt;
+        new Difference(make(view, left), make(view, right))
+
+      case RotateX(scene0, degrees) =&gt; make(view.rotateX(degrees), scene0)
+      case RotateY(scene0, degrees) =&gt; make(view.rotateY(degrees), scene0)
+      case RotateZ(scene0, degrees) =&gt; make(view.rotateZ(degrees), scene0)
+      case Translate(scene0, dx, dy, dz) =&gt;
+        make(view.translate(dx, dy, dz), scene0)
+      case Scale(scene0, rx, ry, rz) =&gt; make(view.scale(rx, ry, rz), scene0)
+      case UScale(scene0, r)         =&gt; make(view.uScale(r), scene0)
+    }
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>For primitive shapes,
+we create new instances of the appropriate shape class.
+For the Boolean operations,
+we recursively make the worlds for the two parameters
+then combine them as the appropriate type of world.
+The same view is passed unchanged to the recursive calls.
+For the transformations,
+we recursively make the world for the parameter,
+but with a view that has been appropriately modified.</P><P>The reason we use a separate representation of scenes and worlds is efficiency.
+We do all of the matrix multiplications in one place,
+so that we minimize the amount of work to be done.
+If the matrix multiplications were done during ray tracing,
+the same computations would effectively be repeated thousands of times
+which is an enormous and unnecessary cost.
+On the other hand,
+if they were done during scene construction
+we would need to apply <EM>each</EM> transformation to all shapes separately,
+instead of collapsing all the transformations for a shape into one
+before applying it.
+This probably isn&#X2019;t as bad as the first case,
+but may still be a significant problem.</P><H3 CLASS="subsection"><A NAME="toc16"></A><A NAME="htoc36">5.7</A>&#XA0;&#XA0;Surface properties<A NAME="sec:properties"></A></H3><P>The surface of a shape is defined by a surface function,
+which is a closure value
+that pops the face number and coordinates off the data stack
+and pushes the surface properties.
+To find the surface properties we need to
+call the virtual machine recursively to execute the function&#X2014;it is recursive because it is called when
+the virtual machine is running
+a GML program for which it has reached a <CODE>render</CODE> operator
+(more on this later).</P><P>The <CODE>Properties</CODE> class represents surface properties.
+It is shown in Figure&#XA0;<A HREF="#fig:properties">64</A> with its companion object.
+The <CODE>surfaceProperties</CODE> method in the companion object 
+performs the call to the surface function
+and returns the result in a <CODE>Properties</CODE> value.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 64: The<A NAME="fig:properties"></A> <TT>Properties</TT> class
+and companion object.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package runtime
+
+import render.Point
+
+case class Properties(color: Point, kd: Double, ks: Double, exp: Double)
+
+object Properties {
+  def properties(vm: VM, surface: ClosureValue, face: Int,
+                 u: Double, v: Double): Properties =
+  {
+    // Save registers.
+    val savedContext = vm.currentContext
+    val savedCodePointer = vm.codePointer
+    val savedReturnPointer = vm.returnPointer
+
+    // Perform call.
+    vm.data.push(IntValue(face))
+    vm.data.push(RealValue(u))
+    vm.data.push(RealValue(v))
+    vm.currentContext = surface.context
+    vm.execute(surface.address)
+    val exp = vm.data.pop.toReal
+    val ks = vm.data.pop.toReal
+    val kd = vm.data.pop.toReal
+    val color = vm.data.pop.toPoint
+
+    // Restore registers.
+    vm.returnPointer = savedReturnPointer
+    vm.codePointer = savedCodePointer
+    vm.currentContext = savedContext
+
+    // Return the properties.
+    Properties(color, kd, ks, exp)
+  }
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>Since the virtual machine is already running,
+we need to save the registers before the call and restore them afterwards,
+otherwise it will get confused when it tries to resume
+after processing the <CODE>render</CODE> operator.
+Doing the call involves pushing the three inputs,
+then setting the closure context and executing the address,
+then popping the outputs in reverse order.
+At the end, the outputs are
+packaged in a <CODE>Properties</CODE> value and returned.</P><H3 CLASS="subsection"><A NAME="toc17"></A><A NAME="htoc37">5.8</A>&#XA0;&#XA0;Dealing with surface acne<A NAME="sec:acne"></A></H3><P>We have to be careful when dealing with shape boundaries,
+because of the so-called <EM>surface acne</EM> problem
+that can result from rounding errors.
+When a ray hits a shape,
+we need to fire several rays from the point of intersection
+to determine how the point is illuminated.
+If, due to rounding errors,
+the intersection point ends up slightly inside the shape,
+the secondary rays will immediately hit the boundary of the shape
+even though they shouldn&#X2019;t be affected by it.</P><P>Because of the way we have constructed our boundary lists,
+any time this rounding problem happens
+there will be <EM>two</EM> bogus boundaries at the start of the list.
+One will be the boundary described above,
+but before that there will be a boundary at time zero,
+which is left over from intersecting with the <CODE>univ(ray)</CODE> value
+(section&#XA0;<A HREF="#sec:shapes">5.6.4</A>).</P><P>Any time there is a boundary at time zero,
+it means the origin of the ray was inside a solid shape.
+Since rays should never get inside solid things to begin with,
+we know this must be due to a rounding error
+and we ignore the first pair of boundaries.<SUP><A NAME="text4" HREF="#note4">4</A></SUP></P><P>The method in Figure&#XA0;<A HREF="#fig:firstentry">65</A> performs this step.
+It is a member of the <CODE>Boundary</CODE> companion object.
+Using this method, we avoid the problem of surface acne
+without affecting any other part of the image.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 65: The<A NAME="fig:firstentry"></A> <TT>firstEntry</TT> method
+(<TT>runtime.render.Boundary</TT>).</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">  def firstEntry(as: Boundaries): Option[Boundary] =
+    as match {
+      case a :: _ if (a.time &gt; 0) =&gt; Some(a)
+      case _ :: _ :: a :: _ =&gt; Some(a)
+      case _ =&gt; None
+    }
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><H3 CLASS="subsection"><A NAME="toc18"></A><A NAME="htoc38">5.9</A>&#XA0;&#XA0;Ray tracing<A NAME="sec:raytracing"></A></H3><P>The main rendering loop and the ray tracing itself will be
+performed by the <CODE>Render</CODE> class.
+The start of this class is shown in Figure&#XA0;<A HREF="#fig:render">66</A>.
+The parameters consist of a virtual machine,
+plus some of the inputs to the render operator.
+The remaining inputs will be provided to the rendering method,
+defined later in section&#XA0;<A HREF="#sec:render">5.11</A>.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 66: The<A NAME="fig:render"></A> <TT>Render</TT> class.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package runtime.render
+
+import runtime._
+
+class Render(vm: VM,
+             world: World,
+             ambient: Point,
+             lights: Array[Light],
+             maxDepth: Int)
+{
+  // What is the color if there is no object hit?
+  val background = Point(0, 0, 0)
+
+  // Don't consider color components less than this value.
+  val cutoff = 0.001
+
+  // Return the square of the distance to the nearest entry, or None
+  // if there is no such boundary.
+  def fireShadowRay(ray: Ray): Option[Double] =
+    Boundary.firstEntry(world.boundaries(ray)) map
+            { b =&gt; (b.worldPoint - ray.origin).squared }
+
+  ...
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>It defines two constant values,
+for the background color and for the minimum color value to consider.
+When firing rays,
+if the result is going to be multiplied by a number less than
+the minimum color value,
+then we don&#X2019;t bother firing the ray at all and just return black.</P><P>The <CODE>fireShadowRay</CODE> method is used to determine if the light
+from a particular source reaches a given point
+without being blocked by another shape.
+If there are no boundaries on the ray then the light will definitely reach;
+we return <CODE>None</CODE> to indicate this result.
+If there is a boundary then we return its distance squared.
+This will be passed to the <CODE>Light.isBlocked</CODE> method
+from section&#XA0;<A HREF="#sec:lights">5.2</A>.</P><P>Before we implement the main ray tracing method,
+it is helpful to create a class that captures the illumination model.
+The <CODE>Illumination</CODE> class in Figure&#XA0;<A HREF="#fig:illumination">67</A>
+represents the illumination of a boundary point on a ray.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 67: The<A NAME="fig:illumination"></A> <TT>Illumination</TT> class.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package runtime.render
+
+import Math.{abs, pow}
+import runtime.Properties
+
+class Illumination(render: Render,
+                   ray: Ray,
+                   boundary: Boundary,
+                   properties: Properties)
+{
+  val black = Point(0, 0, 0)
+  val point = boundary.worldPoint
+  val normal = boundary.shape.normal(boundary.face, boundary.shapePoint)
+  val velocityDotNormal = ray.velocity dot normal
+  val reflection = Ray(point, ray.velocity - (normal * velocityDotNormal * 2))
+
+  // Illumination at this point from a given light.
+  def fromLight(light: Light): Point = {
+    val shadowRay = Ray(point, light.directionFrom(point))
+    if (velocityDotNormal * (shadowRay.velocity dot normal) &gt;= 0) {
+      // The light source is below the horizon.
+      return black
+    }
+
+    val attenuation = light.attenuation(shadowRay)
+    if (attenuation &lt; render.cutoff) {
+      // There is not enough light to bother.
+      return black
+    }
+
+    render.fireShadowRay(shadowRay) match {
+      case Some(dSqr) if (light.isBlocked(point, dSqr)) =&gt;
+        // The light is blocked by something.
+        return black
+      case _ =&gt;
+    }
+
+    val halfway = (shadowRay.velocity - ray.velocity).unit
+    val specular = pow(abs(normal dot halfway), properties.exp) * properties.ks
+    val diffuse = abs(normal dot shadowRay.velocity) * properties.kd
+    light.color * (specular + diffuse) * attenuation
+  }
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>The first part of the class defines several values based on
+the class parameters.
+These same values will be used for the specular reflection
+and the contribution of each light in the scene,
+so it makes sense to calculate them once for the chosen boundary
+rather than repeat the calculations multiple times.</P><P>The <CODE>fromLight</CODE> method returns the contribution,
+specular and diffuse,
+of a light at the boundary point.
+The first step is to work out the shadow ray for this light.
+That is, the unit ray that points towards the light from the boundary.
+Before doing the rest of the calculation we perform three checks
+to determine whether there should be any contribution at all.</P><P>We first check that the light is above the horizon.
+That is, the boundary point cannot be in the shadow of the object itself.
+This is slightly tricky because we don&#X2019;t know whether the normal
+points inside or outside the surface,
+but if the incoming velocity vector
+is on the same side of the surface as the normal,
+then the shadow velocity vector must be on the opposite side.
+In other words,
+the dot product of the incoming velocity and the normal
+must have the opposite sign to
+the dot product of the shadow velocity and the normal.
+Equivalently,
+the (real) product of these two dot products must be negative,
+so this is what we check for.</P><P>The second check is that the attenuation we calculate is not below the cutoff.
+Since the end result will be multiplied by the attenuation,
+if the value is close to zero we might as well return black
+without performing the rest of the computation.</P><P>The last check is done after firing the shadow ray.
+Here we just check that there is nothing blocking the light.</P><P>When calculating the contributions,
+we again need to account for the fact that the normal vector
+may be pointing inside the object.
+The effect would be that the dot products of the normal with
+the <CODE>halfway</CODE> vector and with the shadow vector
+would have the wrong sign.
+Since we know that both the incident ray and the shadow ray
+are above the horizon,
+we know these dot products must be positive,
+therefore we just take the absolute value.</P><P>The main ray tracing method is shown in Figure&#XA0;<A HREF="#fig:fireray">68</A>.
+We first check the depth limit;
+if the limit is reached we must stop now and return the background color.
+We then try to find the first entry,
+and return the background color of none is found.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 68: The<A NAME="fig:fireray"></A> <TT>fireRay</TT> method
+(<TT>runtime.render.Render</TT>).</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">  // Return the color seen in the direction of this ray,
+  // assuming we are at the given recursion depth.
+  def fireRay(ray: Ray, depth: Int): Point =
+    if (depth &gt; maxDepth) background
+    else Boundary.firstEntry(world.boundaries(ray)) match {
+      case None =&gt; background
+      case Some(boundary) =&gt;
+        val (u, v) = boundary.faceCoordinates
+        val properties = Properties.properties(vm, boundary.shape.surface,
+                                               boundary.face, u, v)
+        val illumination = new Illumination(this, ray, boundary, properties)
+        val ambientReflection = ambient * properties.kd
+        val specularReflection =
+          if (properties.ks * properties.color.maxCoordinate &lt; cutoff) {
+            background
+          } else {
+            fireRay(illumination.reflection, depth + 1) * properties.ks
+          }
+        var lighting = ambientReflection + specularReflection
+        for (light &lt;- lights) lighting += illumination.fromLight(light)
+        lighting times properties.color
+  }
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>Having chosen our boundary,
+we evaluate the surface properties and create an illumination instance.
+We calculate the light from ambient and specular reflection,
+but before making the recursive call for specular reflection,
+we check whether the result would be significant.
+We don&#X2019;t make the call if the maximum possible coordinate value of the color
+is below the cutoff.</P><P>We then add up the various components in the illumination model,
+accumulating them in the <CODE>lighting</CODE> variable.
+The final result is the sum of the lighting components
+times the color of the surface at that point.</P><H3 CLASS="subsection"><A NAME="toc19"></A><A NAME="htoc39">5.10</A>&#XA0;&#XA0;Pixmaps<A NAME="sec:pixmap"></A></H3><P>The output of the program is in the form of a &#X201C;Portable Pixmap File&#X201D;.
+Before we get to the rendering loop,
+we need to write code that writes the pixel colors
+to a file in this format.</P><P>Figure&#XA0;<A HREF="#fig:pixmap">69</A> shows the <CODE>Pixmap</CODE> class,
+which stores the array of pixels while we are rendering the image
+then outputs the file when we are finished.
+The <CODE>update</CODE> method is called to set a pixel value,
+or the equivalent assignment syntax is used.
+The <CODE>output</CODE> method opens a file with the given name,
+writes the header and pixel values,
+then closes the file.
+The pixel values are converted to the appropriate range before being written.</P><P>The pixels are stored in an array of arrays.
+When the outer array is created we need to create all the inner arrays as well,
+otherwise when <CODE>update</CODE> is called a null value will be dereferenced.
+The two-argument constructor performs this creation for arrays of arrays.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 69: The<A NAME="fig:pixmap"></A> <TT>Pixmap</TT> class.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package runtime
+
+import render.Point
+import java.io.{BufferedOutputStream, FileOutputStream}
+
+class Pixmap(width: Int, height: Int) {
+  val header = "P6 "+ width +" "+ height +" 255\n"
+
+  val pixels = new Array[Array[Point]](height, width)
+
+  def update(x: Int, y: Int, color: Point): Unit = {
+    pixels(y)(x) = color
+  }
+
+  def output(filename: String): Unit = {
+    val s = new BufferedOutputStream(new FileOutputStream(filename))
+    s.write(header.getBytes)
+    for (row &lt;- pixels; pixel &lt;- row) {
+      s.write(colorVal(pixel.x))
+      s.write(colorVal(pixel.y))
+      s.write(colorVal(pixel.z))
+    }
+    s.close
+  }
+
+  // Convert from 0..1 to 0..255.
+  def colorVal(v: Double): Int = {
+    val scaled = v * 256
+    if (scaled &lt; 0) 0
+    else if (scaled &gt; 255) 255
+    else scaled.toInt
+  }
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><H3 CLASS="subsection"><A NAME="toc20"></A><A NAME="htoc40">5.11</A>&#XA0;&#XA0;The <TT>render</TT> operator<A NAME="sec:render"></A></H3><P>The render operator will need to start the main rendering loop,
+which iterates over all of the pixels in the target image and fires the rays.
+The rendering loop implementation is
+in method <CODE>render</CODE> in class <CODE>Render</CODE>,
+shown in Figure&#XA0;<A HREF="#fig:renderloop">70</A>.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 70: The<A NAME="fig:renderloop"></A> rendering loop
+(<TT>runtime.render.Render</TT>).</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">  import Math.{tan, toRadians}
+
+  // Render the image.
+  def render(fieldOfView: Double, width: Int, height: Int, filename: String) = {
+    val imageWidth = 2 * tan(0.5 * toRadians(fieldOfView))
+    val pixelSize = imageWidth / width
+    val imageHeight = pixelSize * height
+    val imageLeft = -imageWidth / 2
+    val imageTop = imageHeight / 2
+    val origin = Point(0, 0, -1)
+    val pixmap = new Pixmap(width, height)
+
+    // Main loop.
+    for (j &lt;- 0 until height) {
+      for (i &lt;- 0 until width) {
+        val x = imageLeft + (i + 0.5) * pixelSize
+        val y = imageTop - (j + 0.5) * pixelSize
+        val ray = Ray(origin, Point(x, y, 1).unit)
+        pixmap(i, j) = fireRay(ray, 1)
+      }
+      if (j % 8 == 7) print(".")
+    }
+    println("")
+
+    // output
+    pixmap.output(filename)
+  }
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>The method first evaluates some constants
+for use in calculating the ray direction,
+then creates a <CODE>Pixmap</CODE> to store the results.
+The loop itself calls <CODE>fireRay</CODE>,
+with an initial depth of 1,
+on each iteration.
+We print a &#X201C;.&#X201D; every eighth row of pixels,
+so on large examples the user isn&#X2019;t left with
+a long and mystifying wait before receiving any feedback.
+We also print a newline after the loop to get all the dots out of the way.</P><P>Finally, the method calls the <CODE>output</CODE> method of the pixmap
+to write the file.</P><P>We can now give the definition of the <CODE>render</CODE> method
+in class <CODE>VM</CODE>,
+which implements the GML render operator.
+The code is shown in Figure&#XA0;<A HREF="#fig:renderop">71</A>.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 71: The<A NAME="fig:renderop"></A> render operator (<TT>runtime.VM</TT>).</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">  import render.{Render, World, View}
+
+  private def render: Unit = {
+    val filename = data.pop.toStr
+    val height = data.pop.toInt
+    val width = data.pop.toInt
+    val fieldOfView = data.pop.toReal
+    val depth = data.pop.toInt
+    val world = World.make(View.identity, data.pop.toScene)
+    val lights = data.pop.toArray map { _ toLight }
+    val ambient = data.pop.toPoint
+    new Render(this, world, ambient, lights, depth).
+            render(fieldOfView, width, height, filename)
+  }
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>The inputs to the operator are first read, in reverse order.
+The scene value must be converted to a <CODE>World</CODE>,
+using the <CODE>make</CODE> factory method.
+The identity view is passed in to start the process off.
+Since the <CODE>toArray</CODE> method just returns
+an array of values,
+we need to convert the lights value to an array of lights
+using a map expression.</P><P>After the inputs are read,
+we create a new instance of <CODE>Render</CODE>
+and call the method defined above.</P><P>This is the final piece of code for our program.
+We can now run examples using all of the scene building
+and rendering functionality of GML.</P><HR CLASS="footnoterule"><DL CLASS="thefootnotes"><DT CLASS="dt-thefootnotes">
+<A NAME="note3" HREF="#text3">3</A></DT><DD CLASS="dd-thefootnotes">Since the scene being rendered is not moving,
+it doesn&#X2019;t matter that the rays have a speed as well as a direction.
+We treat the rays as having a velocity rather than just a direction,
+because it simplifies our calculations later on.
+</DD><DT CLASS="dt-thefootnotes"><A NAME="note4" HREF="#text4">4</A></DT><DD CLASS="dd-thefootnotes">Actually, this isn&#X2019;t quite right.
+It can also happen if the observer
+is stuck inside a solid object in the scene.
+The specification doesn&#X2019;t say what to do in such an unfortunate case,
+but our program at least lets the doomed observer
+see out of their prison,
+even if nobody else can see them.
+</DD></DL>
+<HR>
+<A HREF="compiling.html"><IMG SRC="previous_motif.gif" ALT="Previous"></A>
+<A HREF="index.html"><IMG SRC="contents_motif.gif" ALT="Up"></A>
+<A HREF="exercises.html"><IMG SRC="next_motif.gif" ALT="Next"></A>
+</BODY>
+</HTML>

@@ -1,0 +1,61 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN"
+            "http://www.w3.org/TR/REC-html40/loose.dtd">
+<HTML>
+<HEAD>
+
+<META http-equiv="Content-Type" content="text/html; charset=US-ASCII">
+<META name="GENERATOR" content="hevea 1.10">
+<LINK rel="stylesheet" type="text/css" href="gml-scala-example.css">
+<TITLE>GML: Introduction</TITLE>
+</HEAD>
+<BODY >
+<A HREF="index.html"><IMG SRC="contents_motif.gif" ALT="Up"></A>
+<A HREF="gml.html"><IMG SRC="next_motif.gif" ALT="Next"></A>
+<HR>
+<H2 CLASS="section"><A NAME="htoc1">1</A>&#XA0;&#XA0;Introduction<A NAME="sec:intro"></A></H2><P>This document contains an extended example of programming in Scala.
+The program, of which the full listing is supplied,
+implements a simple language for ray tracing named GML.
+Users write GML code that produces a scene description,
+which is then rendered to an output file.
+The task originally appeared as a challenge for
+the Third Annual ICFP Programming Contest in August, 2000.<SUP><A NAME="text1" HREF="#note1">1</A></SUP></P><P>There are three main parts to our program.
+First is a virtual machine that provides
+an execution mechanism for the functional language.
+We describe the virtual machine in section&#XA0;<A HREF="vm.html#sec:vm">3</A>.
+The second part is a compiler that reads in GML programs
+and produces bytecode suitable for the virtual machine.
+We describe the compiler in section&#XA0;<A HREF="compiling.html#sec:compiling">4</A>.
+The last part is a renderer that performs ray tracing on a scene
+and produces the output.
+This is described in section&#XA0;<A HREF="rendering.html#sec:rendering">5</A>.</P><P>Our design is by no means the best possible.
+Some potential improvements are collected together
+in section&#XA0;<A HREF="exercises.html#sec:exercises">6</A>,
+in the form of exercises for the reader.</P><P>This extended example is aimed at &#X201C;advanced&#X201D; readers,
+in the sense that we don&#X2019;t take the time to introduce
+all the Scala language and library features we use.
+Instead, we try to focus our attention on unusual or tricky situations
+that can sometimes arise.
+We assume the reader has a reasonable understanding of Scala&#X2019;s main features
+and is able to consult other documentation if needed.</P><P>Why choose Scala for this task?
+The task covers a number of complex and disparate problems,
+ranging from program analysis to Boolean algebra and affine geometry.
+A high-level language is well suited to these kinds of problems.
+In particular,
+we&#X2019;ll make use of the &#X201C;functional&#X201D; style
+to simplify much of the reasoning we need to do about our program.
+Nevertheless, where they are of particular use
+we shall still use non-functional language features
+such as mutable stacks and maps.
+Scala is a good choice for this task because
+it provides ready access to the functional style,
+without requiring this style to be used throughout the program.</P><P>But why choose this task at all?
+Partly because finding solutions to these kinds of problems is interesting;
+mostly because the pictures we can produce
+are often astounding, and sometimes beautiful!</P><HR CLASS="footnoterule"><DL CLASS="thefootnotes"><DT CLASS="dt-thefootnotes">
+<A NAME="note1" HREF="#text1">1</A></DT><DD CLASS="dd-thefootnotes"><TT>http://www.cs.cornell.edu/icfp/</TT>
+</DD></DL>
+<HR>
+<A HREF="index.html"><IMG SRC="contents_motif.gif" ALT="Up"></A>
+<A HREF="gml.html"><IMG SRC="next_motif.gif" ALT="Next"></A>
+</BODY>
+</HTML>

@@ -1,0 +1,679 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN"
+            "http://www.w3.org/TR/REC-html40/loose.dtd">
+<HTML>
+<HEAD>
+
+<META http-equiv="Content-Type" content="text/html; charset=US-ASCII">
+<META name="GENERATOR" content="hevea 1.10">
+<LINK rel="stylesheet" type="text/css" href="gml-scala-example.css">
+<TITLE>GML: The virtual machine</TITLE>
+</HEAD>
+<BODY >
+<A HREF="gml.html"><IMG SRC="previous_motif.gif" ALT="Previous"></A>
+<A HREF="index.html"><IMG SRC="contents_motif.gif" ALT="Up"></A>
+<A HREF="compiling.html"><IMG SRC="next_motif.gif" ALT="Next"></A>
+<HR>
+<H2 CLASS="section"><A NAME="htoc3">3</A>&#XA0;&#XA0;The virtual machine<A NAME="sec:vm"></A></H2><UL>
+<LI><A HREF="vm.html#toc1">Locals and nonlocals</A>
+</LI><LI><A HREF="vm.html#toc2">The machine state</A>
+</LI><LI><A HREF="vm.html#toc3">Bytecode</A>
+</LI><LI><A HREF="vm.html#toc4">Dynamic type checks</A>
+</LI><LI><A HREF="vm.html#toc5">The main loop</A>
+</LI><LI><A HREF="vm.html#toc6">Operators</A>
+</LI></UL>
+<H3 CLASS="subsection"><A NAME="toc1"></A><A NAME="htoc4">3.1</A>&#XA0;&#XA0;Locals and nonlocals<A NAME="sec:localsvsnonlocals"></A></H3><P>Consider the GML expression <CODE>{/x x y}</CODE>.
+When this function is pushed onto the data stack
+we will not know the value of <CODE>x</CODE>.
+That value will only become known after we apply the function,
+at which point <CODE>x</CODE> will become bound to the next value on the stack.
+In contrast, we will know the value of <CODE>y</CODE>
+because GML is lexically scoped;
+<CODE>y</CODE> must already be bound in the environment,
+and it keeps this value when the function is applied.
+This means that the runtime representation of the function
+must include a value for <CODE>y</CODE> but not for <CODE>x</CODE>.</P><P>We refer to identifiers like <CODE>x</CODE> as <EM>locals</EM>,
+and identifiers like <CODE>y</CODE> as <EM>nonlocals</EM>.
+An identifier occurrence in a function is local if
+there is a corresponding binder somewhere to its left,
+within the same or an enclosing scope.
+By &#X201C;scope&#X201D; we mean either the function itself or a nested array.
+For example, in <CODE>{/x [x]}</CODE> the identifier is local because
+the binder is in an enclosing scope,
+but in <CODE>{[/x] x}</CODE> it is nonlocal
+because the binder in the inner scope doesn&#X2019;t count.</P><P>The virtual machine uses <EM>closures</EM> to represent functions.
+A closure is a code address combined with an array of values,
+one for each of the function&#X2019;s nonlocals.
+We refer to this array as a <EM>context</EM>.
+Space will also be needed to store the values of locals
+when the function is applied.
+We shall refer to the space allocated for this purpose as a <EM>frame</EM>.
+Thus, the environment in our implementation
+is split into a context and a frame.</P><P>Figure&#XA0;<A HREF="#fig:value">1</A> shows the runtime representation of values
+(more cases will be added later for scene descriptions).
+All of the cases here except <CODE>ClosureValue</CODE>
+are just wrappers around the corresponding Scala type.
+For closure values, the <CODE>address</CODE> parameter
+is an index into a bytecode array.
+The array will contain all of the bytecode for the entire program;
+the closure address value points to the start of the code for that closure.
+Our bytecode design is discussed in section&#XA0;<A HREF="#sec:bytecode">3.3</A>.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 1: Runtime values<A NAME="fig:value"></A> (incomplete).</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package runtime
+
+sealed abstract class Value
+
+case class BoolValue(b: Boolean) extends Value {
+  override def toString = b.toString
+}
+
+case class IntValue(n: Int) extends Value {
+  override def toString = n.toString
+}
+
+case class RealValue(d: Double) extends Value {
+  override def toString = d.toString
+}
+
+case class StringValue(s: String) extends Value {
+  override def toString = "\""+ s +"\""
+}
+
+case class ArrayValue(elements: Array[Value]) extends Value {
+  override def toString = "["+ elements.mkString(", ") +"]"
+}
+
+case class ClosureValue(address: Int, context: Array[Value]) extends Value {
+  override def toString = "{&amp;"+ address +", "+ context.mkString(", ") +"}"
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>We override to <CODE>toString</CODE> method
+so that values print in a way similar to GML terms.
+This can&#X2019;t completely be done however,
+because there is no GML equivalent of a closure address.
+We just print the address as an integer with a &#X201C;<CODE>&amp;</CODE>&#X201D; before it.</P><H3 CLASS="subsection"><A NAME="toc2"></A><A NAME="htoc5">3.2</A>&#XA0;&#XA0;The machine state</H3><P>The virtual machine requires three stacks:
+the data stack mentioned previously,
+a meta-stack and a frame stack.
+Along with the machine registers described below,
+these stacks comprise the virtual machine state.</P><P>The meta-stack is conceptually a stack of data stacks.
+It is used to support array construction.
+At the start of an array we push the current data stack onto the meta-stack.
+At the end of the array we make the current data stack into an array value
+then pop the previous data stack off the meta-stack.</P><P>The frame stack is used to support function calls.
+If a function has any locals,
+it allocates space for them by pushing a new frame onto the frame stack.
+Any function that does this is required to pop the frame before it returns,
+so that the caller regains access to its own frame.
+We refer to this as entering and leaving the frame, respectively.</P><P>But what happened to the context?
+In section&#XA0;<A HREF="#sec:localsvsnonlocals">3.1</A> we said that the environment consists of
+a frame <EM>and</EM> a context.
+When calling a function we need to save the environment,
+which means saving the context as well as the frame.
+We do this by storing a pointer to the context in one of the frame slots;
+in later sections we&#X2019;ll show how this is achieved.</P><P>Figure&#XA0;<A HREF="#fig:expandarray">2</A> shows some code that will
+help us implement the virtual machine stacks.
+The <CODE>ExpandArray</CODE> object provides a method to set an array element,
+using an immutable style interface where the result array is returned.
+In most cases <CODE>set</CODE> behaves just like a mutable update
+and returns the same array that is passed to it without copying.
+However, if the index is out of range then a larger array is returned.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 2: Support code<A NAME="fig:expandarray"></A> for expanding arrays on demand.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package runtime
+
+object ExpandArray {
+  // Set the value at the index, resizing if needed.
+  def set[T](array: Array[T], index: Int, value: T): Array[T] = {
+    val newArray = if (index &gt;= array.length) resize(array, index) else array
+    newArray(index) = value
+    newArray
+  }
+
+  // Double the array size until it includes the index.
+  def resize[T](array: Array[T], index: Int): Array[T] = {
+    var size = array.length
+    if (size == 0) size = 1
+    while (size &lt;= index) size *= 2
+    val newArray = new Array[T](size)
+    array.copyToArray(newArray, 0)
+    newArray
+  }
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>The data stack is implemented in Figure&#XA0;<A HREF="#fig:datastack">3</A>.
+It works in an obvious way,
+except that we have a separate stack pointer for the bottom of the stack.
+We shall use the extra pointer to implement the meta-stack.</P><P>The meta-stack, implemented as part of the same class,
+is actually a stack of <CODE>stackBottom</CODE> values.
+To start an array the current value of <CODE>stackBottom</CODE> is pushed,
+and it is then set to <CODE>stackTop</CODE>.
+Since <CODE>stackBottom</CODE> now equals <CODE>stackTop</CODE>,
+the data stack is effectively empty.
+At the end of the array constructor,
+we remove the stack entries between <CODE>stackBottom</CODE> and <CODE>stackTop</CODE>
+and copy them to the new array.
+We then pop the value of <CODE>stackBottom</CODE> that was earlier pushed,
+and push the new array onto the data stack as an <CODE>ArrayValue</CODE>.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 3: Virtual machine<A NAME="fig:datastack"></A> data stack and meta-stack.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package runtime
+
+class DataStack {
+  // Data stack.
+  var stack = new Array[Value](256)
+  var stackTop = 0
+  var stackBottom = 0
+
+  def push(value: Value): Unit = {
+    stack = ExpandArray.set(stack, stackTop, value)
+    stackTop += 1
+  }
+
+  def pop: Value = {
+    if (stackTop == stackBottom) throw new Exception("gml: stack underflow")
+    stackTop -= 1
+    stack(stackTop)
+  }
+
+  // Meta-stack.
+  var metaStack = new Array[Int](8)
+  var metaStackTop = 0
+
+  def startArray: Unit = {
+    metaStack = ExpandArray.set(metaStack, metaStackTop, stackBottom)
+    metaStackTop += 1
+    stackBottom = stackTop
+  }
+
+  def endArray: Unit = {
+    val elements = stack.slice(stackBottom, stackTop)
+    stackTop = stackBottom
+    if (metaStackTop == 0) throw new Exception("gml: meta stack underflow")
+    metaStackTop -= 1
+    stackBottom = metaStack(metaStackTop)
+    push(ArrayValue(elements))
+  }
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>Figure&#XA0;<A HREF="#fig:framestack">4</A> shows the frame stack implementation.
+The frame pointer points to slot zero of the topmost frame,
+or is -1 if there are no frames.
+To access a frame slot,
+either when getting or setting,
+we simply subtract the slot number from the frame pointer.
+We use <CODE>apply</CODE> and <CODE>update</CODE> as the access method names,
+which in Scala allows the use of syntax which is similar to array access.
+For example, we get a slot value with <CODE>frames(slot)</CODE>
+and we set it with <CODE>frames(slot) = value</CODE>.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 4: Virtual machine<A NAME="fig:framestack"></A> frame stack.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package runtime
+
+class Frames {
+  var frames = new Array[Value](4096)
+  var framePtr = -1
+
+  def enter(size: Int): Unit = {
+    framePtr += size
+    if (framePtr &gt;= frames.length) frames = ExpandArray.resize(frames, framePtr)
+  }
+
+  def leave(size: Int): Unit = {
+    framePtr -= size
+    if (framePtr &lt; -1) throw new Exception("gml: frame stack underflow")
+  }
+
+  def apply(slot: Int): Value =
+    frames(framePtr - slot)
+
+  def update(slot: Int, value: Value): Unit =
+    frames(framePtr - slot) = value
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>Aside from the stacks,
+the virtual machine state includes three registers.
+The <CODE>currentContext</CODE> register points to
+the context of the closure that is currently executing.
+The <CODE>codePointer</CODE> register contains
+the address of the next bytecode to be executed,
+and <CODE>returnPointer</CODE> contains
+the address we should return to when the current closure finishes.
+A negative value of <CODE>codePointer</CODE>
+indicates that the program should halt
+(so a negative value of <CODE>returnPointer</CODE> means we should halt
+when the current closure finishes).
+The <CODE>VM</CODE> class,
+which contains the stacks and registers
+and will later implement the main loop,
+is shown in Figure&#XA0;<A HREF="#fig:vmregisters">5</A>.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 5: The<A NAME="fig:vmregisters"></A> virtual machine.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package runtime
+
+class VM(code: Array[Bytecode]) {
+  // Stacks.
+  val data = new DataStack
+  val frames = new Frames
+
+  // Registers.
+  var currentContext: Array[Value] = null
+  var codePointer = -1
+  var returnPointer = -1
+
+  ...
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>The paramater to the <CODE>VM</CODE> class is a bytecode array.
+Bytecode is described in the next section.</P><H3 CLASS="subsection"><A NAME="toc3"></A><A NAME="htoc6">3.3</A>&#XA0;&#XA0;Bytecode<A NAME="sec:bytecode"></A></H3><P>Bytecode is a way of representing virtual machine instructions
+using fixed-size chunks of data.
+This section describes the bytecode we use in our program.
+Note that we don&#X2019;t actually represent these in byte form,
+although it wouldn&#X2019;t be hard to encode them in two words
+(or even one)
+by using external tables for the operators and
+real and string literals.</P><P>Figure&#XA0;<A HREF="#fig:bytecode">6</A> shows the bytecode definition.
+We use case classes so we can pattern match on bytecode values,
+which will be useful when implementing the main loop of the virtual machine
+in section&#XA0;<A HREF="#sec:mainloop">3.5</A>.
+Note that the cases with no parameters are actually case objects,
+not case classes.
+This makes sense because there is only ever one value in each of these cases&#X2014;there are no parameters to distinguish between different occurrences.
+For example, every occurrence of <CODE>Return</CODE> is identical
+so they are all really the same value.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 6: Bytecode<A NAME="fig:bytecode"></A> definition.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package runtime
+
+sealed abstract class Bytecode
+
+case object DoRender extends Bytecode
+case class Apply(isTailCall: Boolean) extends Bytecode
+case class If(isTailCall: Boolean) extends Bytecode
+case object Return extends Bytecode
+case class EnterFrame(size: Int) extends Bytecode
+case class LeaveFrame(size: Int) extends Bytecode
+case class SaveContext(slot: Int) extends Bytecode
+case class RestoreContext(slot: Int) extends Bytecode
+case class SaveReturnPtr(slot: Int) extends Bytecode
+case class RestoreReturnPtr(slot: Int) extends Bytecode
+case class MakeClosure(size: Int) extends Bytecode
+case class PushInt(n: Int) extends Bytecode
+case class PushReal(d: Double) extends Bytecode
+case class PushString(s: String) extends Bytecode
+case class PushNonlocal(slot: Int) extends Bytecode
+case class PushLocal(slot: Int) extends Bytecode
+case class PopLocal(slot: Int) extends Bytecode
+case object PopUnused extends Bytecode
+case class Op(op: Operators.OpType) extends Bytecode
+case object StartArray extends Bytecode
+case object EndArray extends Bytecode
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>The first bytecode, <CODE>DoRender</CODE>,
+implements the GML <CODE>render</CODE> operator.</P><P>The next two cases, <CODE>Apply</CODE> and <CODE>If</CODE>,
+implement the <CODE>apply</CODE> and <CODE>if</CODE> operators that call a closure.
+To perform the call,
+we set <CODE>currentContext</CODE> to the closure&#X2019;s context,
+set <CODE>returnPointer</CODE> to the current value of <CODE>codePointer</CODE>,
+and set <CODE>codePointer</CODE> to the address of the closure.
+The <CODE>isTailCall</CODE> parameter is <CODE>true</CODE> if this is a tail call,
+which is a call occurring as the last term in a function.
+Tail calls are implemented in the same way as regular calls,
+except that <CODE>returnPointer</CODE> is left at its current value.
+This has the same effect as returning again immediately after the call,
+except that there is no need to save and restore <CODE>returnPointer</CODE>.</P><P>The next bytecode, <CODE>Return</CODE>, causes the current closure to return.
+We simply set <CODE>codePointer</CODE> to <CODE>returnPointer</CODE>.</P><P><CODE>EnterFrame</CODE> and <CODE>LeaveFrame</CODE> create or destroy a frame
+with the given size.
+If a function enters a frame it must leave that frame before it returns,
+and it must use the same size in both cases.
+No frame slots may be accessed
+unless a frame of a suitable size has been entered (and not left).</P><P><CODE>SaveContext</CODE> and <CODE>RestoreContext</CODE>
+copy the <CODE>currentContext</CODE> register to and from a frame slot,
+given by the <CODE>slot</CODE> parameter.
+<CODE>SaveReturnPtr</CODE> and <CODE>RestoreReturnPtr</CODE> do the same for the
+<CODE>returnPointer</CODE> register.
+Making a call destroys the values of these registers;
+if the caller needs to refer to either register after the call
+then it must save and restore the register to retain the correct value.</P><P><CODE>MakeClosure</CODE> constructs a new closure value.
+The <CODE>size</CODE> parameter is equal to the size of the context.
+The virtual machine pops this many values to create the context,
+then pops the address value before pushing the new closure onto the stack.</P><P><CODE>PushInt</CODE>, <CODE>PushReal</CODE> and <CODE>PushString</CODE>
+push literal values onto the stack.
+<CODE>PushNonlocal</CODE> and <CODE>PushLocal</CODE> push
+a value from the given slot of the context or frame, respectively.</P><P><CODE>PopLocal</CODE> pops a value into the given frame slot.
+There is no corresponding bytecode to pop a nonlocal value;
+this wouldn&#X2019;t make sense, because
+the nonlocals are fixed when the context is created.
+<CODE>PopUnused</CODE> pops a value and discards it.</P><P><CODE>Op</CODE> performs the action of an operator.
+The <CODE>op</CODE> parameter is a function acting on a data stack,
+which has the side effect of performing the operation.
+This type is defined in the <CODE>Operators</CODE> object,
+shown in Figure&#XA0;<A HREF="#fig:operators">7</A>.
+The operator table will be defined in the <CODE>Operators.opTable</CODE> value,
+using a map literal.
+We provide <CODE>apply</CODE> and <CODE>isDefinedAt</CODE> methods so that
+<CODE>Operators</CODE> can be used like a partial function.
+We shall fill in the details in section&#XA0;<A HREF="#sec:operators">3.6</A>.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 7: The<A NAME="fig:operators"></A> <TT>Operators</TT> object.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package runtime
+
+import Math._
+
+object Operators {
+  type OpType = DataStack =&gt; Unit
+
+  def apply(name: String): OpType =
+    opTable(name)
+
+  def isDefinedAt(name: String): Boolean =
+    opTable contains name
+
+  val opTable: Map[String, OpType] = Map(
+    ...
+  )
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>Note that we don&#X2019;t count
+<CODE>render</CODE>, <CODE>apply</CODE> and <CODE>if</CODE> as operators
+since they each have their own specialized bytecode.
+Conversely,
+we count <CODE>true</CODE> and <CODE>false</CODE> as operators
+to save us the trouble of dealing with Booleans separately.</P><P>The last two bytecode cases, <CODE>StartArray</CODE> and <CODE>EndArray</CODE>,
+implement the start and end of array construction.</P><P>One observation about our bytecode design is worth making.
+The simplest possible function in GML is the identity, <CODE>{}</CODE>,
+which returns as soon as it is called,
+and the next simplest functions are ones that return a constant,
+such as <CODE>{ 1 }</CODE> or <CODE>{ x }</CODE>.
+In our bytecode,
+the identity is implemented as a single <CODE>Return</CODE> bytecode,
+and constant functions are implemented as a single <CODE>Push</CODE>
+(of the required type) followed by a <CODE>Return</CODE>.
+With no more than two instructions,
+the implementation of these functions is fast.
+This is an example of optimizing the common case:
+given that these functions, particularly the constant functions,
+are very common in GML,
+this goes a long way towards making our program efficient.</P><H3 CLASS="subsection"><A NAME="toc4"></A><A NAME="htoc7">3.4</A>&#XA0;&#XA0;Dynamic type checks<A NAME="sec:dynamic"></A></H3><P>GML is a dynamically typed language,
+but in our code we will need to access runtime values statically.
+For example,
+to implement a call we will need to pop a closure value off the stack
+and access its address and context,
+but the value we get from the stack is just a <CODE>Value</CODE>,
+not a <CODE>ClosureValue</CODE>.
+If the user writes a program such as <CODE>{1 apply}</CODE>
+then the value we get won&#X2019;t even be a closure,
+it will be an integer.
+In this case we need to halt the program and report a type error.</P><P>We will need to implement dynamic type checks to detect these errors
+and produce appropriate error messages.
+A good place to implement them is in the base class for runtime values.
+The implementation of <CODE>Value</CODE> in Figure&#XA0;<A HREF="#fig:basevalue">8</A>
+contains methods for either extracting the information in a more usable form
+or throwing an exception.
+In the latter case we call <CODE>typeError</CODE>,
+which has the unusual result type of <CODE>Nothing</CODE>.
+Since there are no values with this type,
+this precludes the method from ever returning normally
+(which it doesn&#X2019;t do because it always throws an exception).
+The reason we give it this type is because, in each place it is used,
+a different and incompatible result type is expected.
+Literally, <CODE>Nothing</CODE> satisfies these expectations.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 8: Base class<A NAME="fig:basevalue"></A> for runtime values.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">sealed abstract class Value {
+  def toBoolean: Boolean = this match {
+    case BoolValue(b) =&gt; b
+    case _ =&gt; typeError("Boolean")
+  }
+
+  def toInt: Int = this match {
+    case IntValue(n) =&gt; n
+    case _ =&gt; typeError("Int")
+  }
+
+  def toReal: Double = this match {
+    case RealValue(d) =&gt; d
+    case _ =&gt; typeError("Real")
+  }
+
+  def toStr: String = this match {
+    case StringValue(s) =&gt; s
+    case _ =&gt; typeError("String")
+  }
+
+  def toArray: Array[Value] = this match {
+    case ArrayValue(elements) =&gt; elements
+    case _ =&gt; typeError("Array")
+  }
+
+  def toClosure: ClosureValue = this match {
+    case c @ ClosureValue(_, _) =&gt; c
+    case _ =&gt; typeError("Function")
+  }
+
+  private def typeError(s: String): Nothing =
+    throw new Exception("type error: expected "+ s +" found "+ this)
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>Notice how we avoided using the name <CODE>toString</CODE>?
+If we hadn&#X2019;t,
+Scala would complain because this overrides the <CODE>toString</CODE> method
+defined in class <CODE>Any</CODE>,
+and we haven&#X2019;t used an <CODE>override</CODE> modifier.
+This is a good thing because if we did accidentally override that method
+the result would be disastrous.
+It would be called any time we tried to print out a <CODE>Value</CODE>
+or append it to a string, and in most cases,
+this would just call <CODE>typeError</CODE>&#X2026; which would
+try to append the value to a string for the error message.
+The end result would be a stack overflow.</P><H3 CLASS="subsection"><A NAME="toc5"></A><A NAME="htoc8">3.5</A>&#XA0;&#XA0;The main loop<A NAME="sec:mainloop"></A></H3><P>Some support methods that use the dynamic type checks
+are shown in Figure&#XA0;<A HREF="#fig:vmsupport">9</A>.
+These will be called from the main loop to implement
+the construction and calling of closures.
+Note that, because the data is coming off a stack,
+we get the last pieces of data before earlier ones.
+So <CODE>callIf</CODE> pops the &#X201C;else&#X201D; value first and the condition last,
+which is the opposite order to how they are written in the GML program.
+Likewise, the <CODE>for</CODE> loop in <CODE>makeClosure</CODE>
+fills in the context array in reverse.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 9: Virtual machine<A NAME="fig:vmsupport"></A> support methods
+(<TT>runtime.VM</TT>).</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">  private def callClosure(value: Value, isTailCall: Boolean): Unit = {
+    val closure = value.toClosure
+    if (!isTailCall) returnPointer = codePointer
+    codePointer = closure.address
+    currentContext = closure.context
+  }
+
+  private def callIf(isTailCall: Boolean): Unit = {
+    val elseVal = data.pop
+    val thenVal = data.pop
+    val condition = data.pop.toBoolean
+    callClosure(if (condition) thenVal else elseVal, isTailCall)
+  }
+
+  private def makeClosure(size: Int): Unit = {
+    val context = new Array[Value](size)
+    for (i &lt;- (0 until size).reverse) context(i) = data.pop
+    data.push(ClosureValue(data.pop.toInt, context))
+  }
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>The main loop of the virtual machine is shown in Figure&#XA0;<A HREF="#fig:mainloop">10</A>.
+It first sets up the registers to the desired values,
+then evaluates bytecode until <CODE>codePointer</CODE> is negative.
+When it returns,
+it does not set the registers back to their previous values.
+If this is required, the caller will need to arrange it.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 10: Virtual machine<A NAME="fig:mainloop"></A> main loop
+(<TT>runtime.VM</TT>).</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">  def execute(address: Int): Unit = {
+    codePointer = address
+    returnPointer = -1
+    while (codePointer &gt;= 0) {
+      val bytecode = code(codePointer)
+      codePointer += 1
+      bytecode match {
+        case DoRender               =&gt; render
+        case Apply(isTailCall)      =&gt; callClosure(data.pop, isTailCall)
+        case If(isTailCall)         =&gt; callIf(isTailCall)
+        case Return                 =&gt; codePointer = returnPointer
+        case EnterFrame(size)       =&gt; frames.enter(size)
+        case LeaveFrame(size)       =&gt; frames.leave(size)
+        case SaveContext(slot)      =&gt; frames(slot) = ArrayValue(currentContext)
+        case RestoreContext(slot)   =&gt; currentContext = frames(slot).toArray
+        case SaveReturnPtr(slot)    =&gt; frames(slot) = IntValue(returnPointer)
+        case RestoreReturnPtr(slot) =&gt; returnPointer = frames(slot).toInt
+        case MakeClosure(size)      =&gt; makeClosure(size)
+        case PushInt(n)             =&gt; data.push(IntValue(n))
+        case PushReal(d)            =&gt; data.push(RealValue(d))
+        case PushString(s)          =&gt; data.push(StringValue(s))
+        case PushNonlocal(slot)     =&gt; data.push(currentContext(slot))
+        case PushLocal(slot)        =&gt; data.push(frames(slot))
+        case PopLocal(slot)         =&gt; frames(slot) = data.pop
+        case PopUnused              =&gt; data.pop
+        case Op(op)                 =&gt; op(data)
+        case StartArray             =&gt; data.startArray
+        case EndArray               =&gt; data.endArray
+      }
+    }
+  }
+
+  private def render: Unit = {
+    ...
+  }
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>The <CODE>render</CODE> method will implement the GML rendering operator.
+We shall define this method in section&#XA0;<A HREF="rendering.html#sec:render">5.11</A>.</P><P>The initial value of &#X2212;1 for <CODE>returnPointer</CODE> is significant.
+As we said earlier,
+this will cause execution to halt at the end of the current closure.
+In particular, the while loop will continue running until
+we reach a <CODE>Return</CODE> bytecode.
+At that point the &#X2212;1 value is copied to the <CODE>codePointer</CODE> register,
+causing the next loop test to fail and the loop to terminate.</P><P>The <CODE>currentContext</CODE> register is not initialized at all.
+It is assumed that the code being executed is at the top level
+where nonlocals are not allowed,
+so this register shouldn&#X2019;t be looked at until after a call.
+At this point, the register will be set to
+the context of the closure that is called.</P><H3 CLASS="subsection"><A NAME="toc6"></A><A NAME="htoc9">3.6</A>&#XA0;&#XA0;Operators<A NAME="sec:operators"></A></H3><P>The last thing required for our virtual machine is the operator table.
+We&#X2019;ll start with just the computational operators;
+the scene building operators will be left until section&#XA0;<A HREF="rendering.html#sec:rendering">5</A>.</P><P>Figure&#XA0;<A HREF="#fig:lifting">11</A> shows some support methods
+in the <CODE>Operators</CODE> object.
+These <EM>lifting</EM> methods will help
+write the operator definitions concisely.
+Each takes a function,
+which itself takes one or two arguments
+of type <CODE>Double</CODE> or <CODE>Int</CODE>,
+and carries this function out on a <CODE>DataStack</CODE>.
+That is,
+it pops the arguments,
+calls the function with these arguments,
+then pushes the result.
+The letters at the end of the method name indicate
+the number and type of arguments expected by the function.
+Note once again that,
+for the two-argument methods,
+the arguments are popped in reverse order.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 11: Operator table<A NAME="fig:lifting"></A> support methods
+(<TT>runtime.Operators</TT>).</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">  def liftR(f: Double =&gt; Value)(data: DataStack): Unit =
+    data.push(f(data.pop.toReal))
+
+  def liftI(f: Int =&gt; Value)(data: DataStack): Unit =
+    data.push(f(data.pop.toInt))
+
+  def liftRR(f: (Double, Double) =&gt; Value)(data: DataStack) = {
+    val arg2 = data.pop.toReal
+    val arg1 = data.pop.toReal
+    data.push(f(arg1, arg2))
+  }
+
+  def liftII(f: (Int, Int) =&gt; Value)(data: DataStack): Unit = {
+    val arg2 = data.pop.toInt
+    val arg1 = data.pop.toInt
+    data.push(f(arg1, arg2))
+  }
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>We use the curried form of declaration for these methods
+because we want to supply the function argument in the operator table,
+but we won&#X2019;t supply the <CODE>DataStack</CODE> argument until the operator is used
+(this is the <CODE>op(data)</CODE> call in Figure&#XA0;<A HREF="#fig:mainloop">10</A>).</P><P>The computational operators are defined in Figure&#XA0;<A HREF="#fig:optable">12</A>.
+Using a map literal gives us a convenient way to write the table,
+and will also allow the parser to do fast lookups.
+The lifting methods certainly make defining operators much easier,
+but it&#X2019;s tempting to try to go further and declare them as <CODE>implicit</CODE>.
+Hopefully, we could then omit the methods
+and have Scala insert them where needed.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 12: Operator definitions<A NAME="fig:optable"></A>
+(<TT>runtime.Operators</TT>).</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">  val opTable: Map[String, OpType] = Map(
+    "acos"       -&gt; liftR(x =&gt; RealValue(toDegrees(acos(x)))),
+    "addf"       -&gt; liftRR((x, y) =&gt; RealValue(x + y)),
+    "addi"       -&gt; liftII((x, y) =&gt; IntValue(x + y)),
+    "asin"       -&gt; liftR(x =&gt; RealValue(toDegrees(asin(x)))),
+    "clampf"     -&gt; liftR(clamp),
+    "cos"        -&gt; liftR(x =&gt; RealValue(cos(toRadians(x)))),
+    "divf"       -&gt; liftRR((x, y) =&gt; RealValue(x / y)),
+    "divi"       -&gt; liftII((x, y) =&gt; IntValue(x / y)),
+    "eqf"        -&gt; liftRR((x, y) =&gt; BoolValue(x == y)),
+    "eqi"        -&gt; liftII((x, y) =&gt; BoolValue(x == y)),
+    "false"      -&gt; { _ push(BoolValue(false)) },
+    "floor"      -&gt; liftR(x =&gt; IntValue(floor(x).toInt)),
+    "frac"       -&gt; liftR(frac),
+    "get"        -&gt; doGet,
+    "length"     -&gt; doLength,
+    "lessf"      -&gt; liftRR((x, y) =&gt; BoolValue(x &lt; y)),
+    "lessi"      -&gt; liftII((x, y) =&gt; BoolValue(x &lt; y)),
+    "modi"       -&gt; liftII((x, y) =&gt; IntValue(x % y)),
+    "mulf"       -&gt; liftRR((x, y) =&gt; RealValue(x * y)),
+    "muli"       -&gt; liftII((x, y) =&gt; IntValue(x * y)),
+    "negf"       -&gt; liftR(x =&gt; RealValue(-x)),
+    "negi"       -&gt; liftI(x =&gt; IntValue(-x)),
+    "real"       -&gt; liftI(x =&gt; RealValue(x)),
+    "sin"        -&gt; liftR(x =&gt; RealValue(sin(toRadians(x)))),
+    "sqrt"       -&gt; liftR(x =&gt; RealValue(sqrt(x))),
+    "subf"       -&gt; liftRR((x, y) =&gt; RealValue(x - y)),
+    "subi"       -&gt; liftII((x, y) =&gt; IntValue(x - y)),
+    "true"       -&gt; { _ push(BoolValue(true)) }
+  )
+
+  private def clamp(d: Double): Value =
+    RealValue(if (d &lt; 0) 0 else if (d &gt; 1) 1 else d)
+
+  private def frac(d: Double): Value =
+    RealValue(d - (if (d &lt; 0) ceil(d) else floor(d)))
+
+  private def doGet(data: DataStack): Unit = {
+    val i = data.pop.toInt
+    val a = data.pop.toArray
+    data.push(a(i))
+  }
+
+  private def doLength(data: DataStack): Unit =
+    data.push(IntValue(data.pop.toArray.length))
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>Unfortunately, this doesn&#X2019;t quite work with
+Scala&#X2019;s flow-based type inference algorithm.<SUP><A NAME="text2" HREF="#note2">2</A></SUP>
+The problem is that if an expression such as
+</P><PRE CLASS="verbatim">  x =&gt; RealValue(toDegrees(acos(x)))
+</PRE><P>appears where the type <CODE>DataStack =&gt; Unit</CODE> is expected,
+Scala not unreasonably guesses that <CODE>x</CODE> has type <CODE>DataStack</CODE>
+and <CODE>RealValue(toDegrees(acos(x)))</CODE> has type <CODE>Unit</CODE>.
+This causes two things to go wrong.
+First, if <CODE>x</CODE> has type <CODE>DataStack</CODE> then
+<CODE>acos(x)</CODE> is a type mismatch,
+because a <CODE>Double</CODE> is expected.
+Second, the body of the function literal
+<EM>can</EM> be treated as <CODE>Unit</CODE> by ignoring the result value.
+But this doesn&#X2019;t match the type of the implicit method,
+which expects an argument of type <CODE>Double =&gt; Value</CODE>,
+so the implicit method is not inserted and we get a type mismatch further up.</P><P>The general solution to these kinds of problems
+is to add type annotations.
+In this case both problems can be avoided
+if we add type annotations to the function literals.
+For example,
+the first three entries in the operator table could be written:
+</P><PRE CLASS="verbatim">  "acos" -&gt; ((x =&gt; RealValue(toDegrees(acos(x)))): (Double =&gt; Value)),
+  "addf" -&gt; (((x, y) =&gt; RealValue(x + y)): ((Double, Double) =&gt; Value)),
+  "addi" -&gt; (((x, y) =&gt; IntValue(x + y)): ((Int, Int) =&gt; Value)),
+</PRE><P>This is rather more verbose than explicit lifting,
+so the cure is worse than the disease!
+Hence, we don&#X2019;t bother with the implicit lifting methods.</P><HR CLASS="footnoterule"><DL CLASS="thefootnotes"><DT CLASS="dt-thefootnotes">
+<A NAME="note2" HREF="#text2">2</A></DT><DD CLASS="dd-thefootnotes">This was tested with Scala 2.7.6.
+</DD></DL>
+<HR>
+<A HREF="gml.html"><IMG SRC="previous_motif.gif" ALT="Previous"></A>
+<A HREF="index.html"><IMG SRC="contents_motif.gif" ALT="Up"></A>
+<A HREF="compiling.html"><IMG SRC="next_motif.gif" ALT="Next"></A>
+</BODY>
+</HTML>

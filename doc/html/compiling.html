@@ -1,0 +1,1270 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN"
+            "http://www.w3.org/TR/REC-html40/loose.dtd">
+<HTML>
+<HEAD>
+
+<META http-equiv="Content-Type" content="text/html; charset=US-ASCII">
+<META name="GENERATOR" content="hevea 1.10">
+<LINK rel="stylesheet" type="text/css" href="gml-scala-example.css">
+<TITLE>GML: Compiling</TITLE>
+</HEAD>
+<BODY >
+<A HREF="vm.html"><IMG SRC="previous_motif.gif" ALT="Previous"></A>
+<A HREF="index.html"><IMG SRC="contents_motif.gif" ALT="Up"></A>
+<A HREF="rendering.html"><IMG SRC="next_motif.gif" ALT="Next"></A>
+<HR>
+<H2 CLASS="section"><A NAME="htoc10">4</A>&#XA0;&#XA0;Compiling<A NAME="sec:compiling"></A></H2><UL>
+<LI><A HREF="compiling.html#toc7">Parsing</A>
+</LI><LI><A HREF="compiling.html#toc8">Program analysis</A>
+</LI><LI><A HREF="compiling.html#toc9">Tying it together</A>
+</LI></UL>
+<H3 CLASS="subsection"><A NAME="toc7"></A><A NAME="htoc11">4.1</A>&#XA0;&#XA0;Parsing<A NAME="sec:parsing"></A></H3><P>We shall build a parser for GML using Scala&#X2019;s parsing combinator library,
+in package <CODE>scala.util.parsing.combinator</CODE>.
+To keep things simple,
+we can use the <CODE>StdTokens</CODE> trait
+defined in <CODE>scala.util.parsing.syntax</CODE>.
+Section&#XA0;<A HREF="#sec:lexer">4.1.1</A> shows how we produce a sequence of GML tokens
+by extending <CODE>Lexical</CODE> with <CODE>StdTokens</CODE>.
+Section&#XA0;<A HREF="#sec:parsetree">4.1.2</A> describes the parse tree,
+and section&#XA0;<A HREF="#sec:parser">4.1.3</A> shows
+how it is constructed from a sequence of tokens
+by extending <CODE>StdTokenParsers</CODE>.</P><H4 CLASS="subsubsection"><A NAME="htoc12">4.1.1</A>&#XA0;&#XA0;Lexical analysis<A NAME="sec:lexer"></A></H4><P><CODE>StdTokens</CODE> in the Scala library defines four types of token:
+keywords, numeric literals, string literals, and identifiers.
+We&#X2019;ll use keyword tokens to represent graphic characters,
+and identifier tokens to represent GML operators and Boolean literals
+as well as GML identifiers (the parser will later sort out which of these
+are really identifiers, and which are operators).
+Numeric and string literal tokens will represent their GML counterparts.</P><P>The start of the <CODE>GmlLexer</CODE> class is shown in Figure&#XA0;<A HREF="#fig:gmllexer">13</A>.
+The <CODE>Lexical</CODE> superclass uses trait <CODE>Scanners</CODE>,
+which defines abstract methods <CODE>whitespace</CODE> and <CODE>token</CODE>
+that we need to implement.
+As the name suggests, <CODE>whitespace</CODE> defines a parser for
+anything that we wish to regard as whitespace.
+Aside from the usual whitespace characters
+we also want to treat comments as being equivalent to whitespace,
+where a comment consists of &#X2018;<CODE>%</CODE>&#X2019; followed by all characters
+up to the next newline or the end of the file
+(represented by <CODE>EofCh</CODE>).</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 13: The<A NAME="fig:gmllexer"></A> <TT>GmlLexer</TT> class.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package compiler
+
+import util.parsing.combinator.lexical.Lexical
+import util.parsing.syntax.StdTokens
+
+class GmlLexer extends Lexical with StdTokens {
+  import util.parsing.input.CharArrayReader.EofCh
+  def whitespace: Parser[Any] =
+    rep(whitespaceChar | '%' ~ rep(chrExcept('\n', EofCh)))
+
+  def token: Parser[Token] =
+    ( name
+    | graphic
+    | numLiteral
+    | stringLiteral
+    )
+
+  ...
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>The implementation of <CODE>token</CODE> is more involved,
+so we&#X2019;ve broken it down into smaller parts.
+Note that the parentheses are required around the different options.
+Without them, a semi-colon will be inferred after <CODE>name</CODE>,
+and Scala will then complain about the code on the next line.</P><P>Token parsers for names, graphic (punctuation) characters
+and string literals are shown in Figure&#XA0;<A HREF="#fig:gmllexer2">14</A>.
+An important thing to notice in the graphic token parser
+is that we can&#X2019;t just write <CODE>('/' | ...)</CODE>,
+because Scala would
+convert the characters to <CODE>Int</CODE> for the &#X2018;<CODE>|</CODE>&#X2019; operation,
+and the resulting <CODE>Int</CODE> does not provide a method for <CODE>^^</CODE>.
+But we don&#X2019;t want the version of &#X2018;<CODE>|</CODE>&#X2019; that works on integers,
+we want the version that works on parsers!
+We can tell Scala this by using an type annotation:
+instead of <CODE>'/'</CODE> we write <CODE>('/':Parser[Char])</CODE>.
+Hence Scala knows that &#X2018;<CODE>|</CODE>&#X2019; is referring to the parser constructor,
+and the resulting parser can be used with <CODE>^^</CODE>.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 14: Token parsers<A NAME="fig:gmllexer2"></A> for names,
+graphic characters and string literals (<TT>compiler.GmlLexer</TT>).</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">  def name: Parser[Token] =
+    letter ~ rep( letter | digit | '-' | '_' ) ^^ {
+      case first ~ rest =&gt; Identifier(first::rest mkString "")
+    }
+
+  def graphic: Parser[Token] =
+    ( ('/': Parser[Char]) | '[' | ']' | '{' | '}' ) ^^
+            { c =&gt; Keyword(c toString) }
+
+  def stringLiteral: Parser[Token] =
+    ( '\"' ~&gt; rep(chrExcept('\"', EofCh)) &lt;~ '\"' ^^
+            { cs =&gt; StringLit(cs mkString "") }
+    | '\"' ~&gt; failure("unclosed string literal")
+    )
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>String literals where the user has forgotten the closing quote
+would not be accepted by the first part of the <CODE>stringLiteral</CODE> rule.
+The second part of the rule is included to catch this case and fail,
+rather than letting the failure be reported
+from an unrelated (and probably baffling) place.</P><P>A numeric literal consists of an integer literal,
+an optional fraction part, and an optional exponent.
+The token parser is shown in Figure&#XA0;<A HREF="#fig:gmllexer3">15</A>.
+Despite the fact that the literal is a number,
+we store the string representation in the token.
+The string is formed by concatenating one string for each part
+(the empty string is used for optional parts that are missing).
+In <CODE>optExp</CODE>, as with <CODE>graphic</CODE>,
+we use a type annotation so that Scala knows what type we want.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 15: A<A NAME="fig:gmllexer3"></A> token parser for numeric literals
+(<TT>compiler.GmlLexer</TT>).</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">  def numLiteral: Parser[Token] =
+    intLiteral ~ optFrac ~ optExp ^^ {
+      case i ~ f ~ e =&gt; NumericLit(i + f + e)
+    }
+
+  def intLiteral: Parser[String] =
+    opt('-') ~ rep1(digit) ^^ {
+      case None ~ digits =&gt; digits mkString ""
+      case Some(_) ~ digits =&gt; '-'::digits mkString ""
+    }
+
+  def optFrac: Parser[String] =
+    opt('.' ~&gt; rep1(digit)) ^^ {
+      case None =&gt; ""
+      case Some(frac) =&gt; '.'::frac mkString ""
+    }
+
+  def optExp: Parser[String] =
+    opt((('e': Parser[Char]) | 'E') ~&gt; intLiteral) ^^ {
+      case None =&gt; ""
+      case Some(exp) =&gt; "e" + exp
+    }
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><H4 CLASS="subsubsection"><A NAME="htoc13">4.1.2</A>&#XA0;&#XA0;The parse tree<A NAME="sec:parsetree"></A></H4><P>We shall start with a simple version of the parse tree,
+which is shown in Figure&#XA0;<A HREF="#fig:term">16</A>.
+This will be expanded in section&#XA0;<A HREF="#sec:analysis">4.2</A>.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 16: The<A NAME="fig:term"></A> parse tree (incomplete).</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package compiler
+
+sealed abstract class Term
+
+case class FunctionTerm(body: Array[Term]) extends Term
+case class ArrayCtor(body: Array[Term]) extends Term
+case class IntLiteral(n: Int) extends Term
+case class RealLiteral(d: Double) extends Term
+case class StringLiteral(s: String) extends Term
+case class Operator(name: String) extends Term
+case class Identifier(name: String) extends Term
+case class Binder(name: String) extends Term
+case object Render extends Term
+case class Call(callType: CallType.Value) extends Term
+
+object CallType extends Enumeration { val Apply, If = Value }
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>Nodes in the parse tree are all members of the abstract class <CODE>Term</CODE>.
+Once again we use Scala&#X2019;s case classes,
+which will allow us to easily traverse the parse tree using pattern matching.
+There is one case for each type of GML term except Boolean literals&#X2014;we shall treat Boolean literals as operators from now on.
+The cases have parameters representing either fixed pieces of data
+or the node children.</P><P>We make a separate case for <CODE>Operator</CODE> terms
+even though we store a name just like <CODE>Identifier</CODE> terms.
+The analysis passes need to know whether or not a name is an operator,
+but they don&#X2019;t need to know what the operation is.
+This means the parser needs to check whether the name
+exists in the operator table to know what type of term to build,
+but we don&#X2019;t need look up the implementation in the table until
+code generation (section&#XA0;<A HREF="#sec:codegen">4.2.4</A>).</P><P>The <CODE>Render</CODE> case is used for the GML &#X201C;render&#X201D; operator.</P><P>The <CODE>Call</CODE> case is used for the GML operators &#X201C;apply&#X201D; and &#X201C;if&#X201D;;
+as in section&#XA0;<A HREF="vm.html#sec:vm">3</A> these are not treated as regular operators.
+The reason we do this here is that these operators
+play a significant role in the analysis passes,
+so having a special case will simplify some of our later code.</P><P>The <CODE>CallType</CODE> object defines an enumeration
+distinguishing between the two types of call.
+In Scala, there is no language feature for enumerations.
+Instead, they are defined using
+the <CODE>Enumeration</CODE> class from the API,
+which provides a convenient and type safe way to define a set of constants.</P><H4 CLASS="subsubsection"><A NAME="htoc14">4.1.3</A>&#XA0;&#XA0;The parser<A NAME="sec:parser"></A></H4><P>Figure&#XA0;<A HREF="#fig:gmlparser">17</A> shows the start of the <CODE>GmlParser</CODE> object.
+As with <CODE>GmlLexer</CODE>,
+there are two abstract members that need to be defined.
+In this case there is a type named <CODE>Tokens</CODE>
+and a value named <CODE>lexical</CODE>,
+from the <CODE>TokenParsers</CODE> supertrait of <CODE>StdTokenParsers</CODE>.
+The definitions need to correspond to our lexer,
+hence we use <CODE>StdTokens</CODE> as the type
+and we create a new <CODE>GmlLexer</CODE> for the lexical value.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 17: The<A NAME="fig:gmlparser"></A> <TT>GmlParser</TT> class.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package compiler
+
+import util.parsing.combinator.syntactical.StdTokenParsers
+import util.parsing.syntax.StdTokens
+
+object GmlParser extends StdTokenParsers {
+  type Tokens = StdTokens
+  val lexical = new GmlLexer
+
+  def parse(s: String): ParseResult[Array[Term]] =
+    phrase(terms)(new lexical.Scanner(s))
+
+  def apply(s: String): Array[Term] =
+    parse(s) match {
+      case Success(terms, _) =&gt; terms
+      case e: NoSuccess =&gt; throw new Exception("syntax error: "+ e.msg)
+    }
+
+  ...
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>The <CODE>parse</CODE> method parses an entire string and
+returns a <CODE>ParseResult</CODE>.
+If parsing is successful,
+the result contains the array of terms that were parsed.
+The result will also contain the remaining input,
+but since <CODE>phrase</CODE> only succeeds if it reads all input
+this part of the result is not interesting.
+If parsing is not successful, it is possible to extract the error message
+using the <CODE>msg</CODE> method.</P><P>To make the parser easier to use
+we also provide an <CODE>apply</CODE> method that parses a string
+and handles the result.</P><P>The rest of <CODE>GmlParser</CODE> is shown in Figure&#XA0;<A HREF="#fig:gmlparser2">18</A>.
+The <CODE>processName</CODE> method first checks for the special cases of
+rendering and calls,
+then decides whether an identifier token is an operator or identifier.
+The <CODE>processNum</CODE> method decides whether a numeric literal is an
+integer or a real.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 18: The<A NAME="fig:gmlparser2"></A> GML grammar
+(<TT>compiler.GmlParser</TT>).</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">  def terms: Parser[Array[Term]] =
+    rep(term) ^^ { Array.concat(_) }
+
+  def term: Parser[Term] =
+    ( ident                 ^^ { processName(_) }
+    | "{" ~&gt; terms &lt;~ "}"   ^^ { FunctionTerm(_) }
+    | "[" ~&gt; terms &lt;~ "]"   ^^ { ArrayCtor(_) }
+    | "/" ~&gt; ident          ^^ { Binder(_) }
+    | numericLit            ^^ { processNum(_) }
+    | stringLit             ^^ { StringLiteral(_) }
+    )
+
+  import runtime.Operators
+  private def processName(name: String): Term =
+    if (name == "render") Render
+    else if (name == "apply") Call(CallType.Apply)
+    else if (name == "if") Call(CallType.If)
+    else if (Operators isDefinedAt name) Operator(name)
+    else Identifier(name)
+
+  private def processNum(num: String): Term =
+    if (num matches "-?[0-9]+") IntLiteral(num.toInt)
+    else RealLiteral(num.toDouble)
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><H3 CLASS="subsection"><A NAME="toc8"></A><A NAME="htoc15">4.2</A>&#XA0;&#XA0;Program analysis<A NAME="sec:analysis"></A></H3><P>The program analysis passes traverse the parse tree
+and collect various kinds of information about nodes.
+We store this information inside the nodes;
+we will need to add some fields to the parse tree to accommodate this.</P><P>Each pass analyses one function term at a time
+(the entire program will itself be treated as a function body).
+The passes can assume that earlier passes
+have all been performed on the function term,
+and that the current pass has been performed on all nested function terms.
+We will need to make sure these assumptions are justified
+when we implement the main loop of the compiler in section&#XA0;<A HREF="#sec:compiler">4.3.1</A>.</P><H4 CLASS="subsubsection"><A NAME="htoc16">4.2.1</A>&#XA0;&#XA0;Nonlocal analysis<A NAME="sec:nonlocals"></A></H4><P>Nonlocal analysis determines
+which of the identifiers occurring in a function are nonlocal.
+It allocates a context slot for each nonlocal,
+and records which of them are local in the parent
+and whether any are nonlocal in the parent.
+Figure&#XA0;<A HREF="#fig:nonlocalsfields">19</A> shows the changes to the parse tree
+to add fields for the results.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 19: Parse tree<A NAME="fig:nonlocalsfields"></A> fields for nonlocal analysis
+(<TT>compiler.Term</TT>).</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">import collection.mutable.{HashMap, HashSet}
+
+case class FunctionTerm(body: Array[Term]) extends Term {
+  // Nonlocal slots.
+  var nonlocals: Array[String] = null
+  val nonlocalMap = new HashMap[String, Int]
+
+  // Locals from the parent that are referenced here.
+  val parentLocals = new HashSet[String]
+
+  // Are nonlocals from the parent referenced here?
+  var hasParentNonlocals = false
+}
+
+case class Identifier(name: String) extends Term {
+  // Is the variable bound locally?
+  var isLocal = false
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>The most convenient way to collect the required information
+is to traverse the function body from left to right.
+We keep track of the set of binders that we have seen,
+as well as the nonlocal slot allocations we have made so far.
+Figure&#XA0;<A HREF="#fig:nonlocals">20</A> shows the <CODE>Nonlocals</CODE> class,
+which does the nonlocal analysis.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 20: Nonlocal<A NAME="fig:nonlocals"></A> analysis.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package compiler
+
+import collection.mutable.{HashSet, Stack}
+
+class Nonlocals(function: FunctionTerm) {
+  // Binders seen.
+  val locals = new HashSet[String]
+
+  // Nonlocals allocated.
+  val nonlocals = new Stack[String]
+
+  // Do the analysis.
+  def analyse: Unit = {
+    traverse(function.body)
+    function.nonlocals = nonlocals.toArray
+    function.parentLocals ++= nonlocals
+  }
+
+  private def traverse(body: Array[Term]): Unit =
+    for (term &lt;- body) term match {
+      case nested @ FunctionTerm(_)   =&gt; handleNested(nested)
+      case ArrayCtor(body)            =&gt; handleArrayCtor(body)
+      case id @ Identifier(name)      =&gt; id.isLocal = reference(name)
+      case Binder(name)               =&gt; locals + name
+      case _                          =&gt;
+    }
+
+  private def handleNested(nested: FunctionTerm): Unit =
+    for (name &lt;- nested.nonlocals if !reference(name)) {
+      nested.parentLocals - name
+      nested.hasParentNonlocals = true
+    }
+
+  private def handleArrayCtor(body: Array[Term]): Unit = {
+    val startLocals = locals.clone
+    traverse(body)
+    locals intersect startLocals
+  }
+
+  private def reference(name: String): Boolean = {
+    val isLocal = locals contains name
+    if (!isLocal &amp;&amp; !(function.nonlocalMap contains name)) {
+      function.nonlocalMap(name) = nonlocals.size
+      nonlocals.push(name)
+    }
+    isLocal
+  }
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>The <CODE>analyse</CODE> method traverses the function body.
+At the end, it copies the slot allocations,
+represented by a stack of names,
+to the function&#X2019;s <CODE>nonlocals</CODE> field.
+It also adds all of the nonlocals to the <CODE>parentLocals</CODE> field.
+This isn&#X2019;t correct yet:
+<CODE>parentLocals</CODE> should not contain <EM>all</EM> the nonlocals,
+only those that are local in the parent.
+When it comes time to process the parent we will need to fix up this field
+by removing the entries that aren&#X2019;t local.
+This is done in the code below.</P><P>Traversing the body involves pattern matching on each term in sequence.
+Functions and arrays are handled by separate methods.
+For identifiers,
+we record that there has been a reference to the name
+by calling <CODE>reference</CODE>.
+This returns <CODE>true</CODE> if the variable is local;
+we use this value to set the <CODE>isLocal</CODE> field of the identifier.
+For binders, we add the name to the set of locals.
+Other types of term are ignored.</P><P>To handle a nested function we need to reference all of its nonlocals.
+If any of them are nonlocal to the function we are analysing,
+this is where we need to fix up the <CODE>parentLocals</CODE> field.
+We remove the nonlocal and record that there was at least one nonlocal.</P><P>To handle an array constructor we need to recursively traverse its body.
+The only trick is that new binders can appear in the array,
+but these won&#X2019;t be in scope after the array has ended.
+We need to make sure the set of locals doesn&#X2019;t include
+any new binders from the array body.
+To do this,
+we clone the set of locals at the start of the array
+then intersect this cloned set at the end.</P><P>Finally,
+when an identifier is referenced we check if it is local.
+If it isn&#X2019;t, and we haven&#X2019;t seen it before,
+then we allocate a slot.
+We can determine the correct slot number by looking at
+the number of slots that have been allocated so far
+(that is, the size of the stack).</P><H4 CLASS="subsubsection"><A NAME="htoc17">4.2.2</A>&#XA0;&#XA0;Liveness analysis<A NAME="sec:liveness"></A></H4><P>Consider the function term
+</P><DIV CLASS="center">
+<CODE>{/x A /y B}</CODE>
+</DIV><P>
+where <CODE>A</CODE> is a list of terms involving <CODE>x</CODE>
+and <CODE>B</CODE> is a list of terms involving <CODE>y</CODE> but not <CODE>x</CODE>.
+We will need to allocate frame slots for <CODE>x</CODE> and <CODE>y</CODE> to store
+the values that the binders receive.
+But since <CODE>x</CODE> does not appear in <CODE>B</CODE>,
+the same slot can be reused&#X2014;the value stored there for <CODE>x</CODE> will no longer be needed
+by the time we need to store the value for <CODE>y</CODE>.</P><P>We shall say that <CODE>x</CODE> is <EM>live</EM> at a given point
+if there is an occurrence of <CODE>x</CODE> somewhere to the right
+in the same function term,
+and <EM>dead</EM> otherwise.
+For example, in the above function <CODE>x</CODE> is live in <CODE>A</CODE>
+(up to its last occurrence)
+but dead in <CODE>B</CODE>.
+The occurrence may be in a nested function or array,
+as long as it isn&#X2019;t &#X201C;shadowed&#X201D; by a binder for <CODE>x</CODE>
+that is in scope between the given point and <CODE>x</CODE>.</P><P>Liveness analysis calculates the point at which
+each identifier in a function becomes dead.
+This will allow us to optimize execution by determining
+the earliest time a frame slot can be reused or the entire frame freed.
+Although we reuse frame slots,
+it doesn&#X2019;t make sense to reuse context slots
+since these are fixed when the closure is created.
+But we can still determine when the last nonlocal becomes dead,
+and after this point the virtual machine
+will no longer need to keep track of the <CODE>currentContext</CODE> register.</P><P>The changes to the parse tree for this pass
+are shown in Figure&#XA0;<A HREF="#fig:livenessfields">21</A>.
+Identifiers can become dead either in an identifier term
+(if it is the last reference)
+or in a nested function,
+so we include information about the local(s) to free in these cases.
+We can leave the frame as soon as all of the locals are dead
+and no slots are being used to save registers across a call.
+This can happen at an identifier, a nested function or a call,
+so we add a flag for it to the base class.
+We also add a flag to binders to say whether the identifier is ever used;
+if it isn&#X2019;t, no frame slot will be needed at all.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 21: Parse tree<A NAME="fig:livenessfields"></A> fields for liveness analysis
+(<TT>compiler.Term</TT>).</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">sealed abstract class Term {
+  // Should we leave the frame after this term?
+  var leaveFrame = false
+}
+
+case class FunctionTerm(body: Array[Term]) extends Term {
+  ...
+  // Parent locals to free after the closure is built.
+  var localsToFree: List[String] = Nil
+}
+
+case class Identifier(name: String) extends Term {
+  ...
+  // Should we free the local after pushing?
+  var freeLocal = false
+}
+
+case class Binder(name: String) extends Term {
+  // True if there are no references to the right.
+  var isUnused = false
+}
+
+case class Call(callType: CallType.Value) extends Term {
+  // Is this the last term in a function body?
+  var isTailCall = false
+
+  // Should we restore returnPointer after this call?
+  var restoreReturnPointer = false
+
+  // Should we save currentContext before this call?
+  var saveCurrentContext = false
+
+  // Should we restore currentContext after this call?
+  var restoreCurrentContext = false
+
+  // Should we free the currentContext slot after this call?
+  var freeCurrentContext = false
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>We detect various things about calls during liveness analysis.
+Tail calls are flagged.
+We flag calls before which the current context needs to be saved
+and after which it needs to be restored,
+and calls after which the return pointer needs to be restored.
+(The return pointer save will be added in the next pass.)
+We also flag the last call to restore the current context,
+which is where we can free the frame slot used for this purpose.</P><P>The start of the liveness analysis implementation
+is shown in Figure&#XA0;<A HREF="#fig:liveness">22</A>.
+For this pass the most convenient way to collect the required information
+is to traverse the body from right to left,
+which is why the body is reversed in the <CODE>for</CODE> expression.
+We keep track of a number of flags for things we have seen in our traversal,
+as well as the set of live locals.
+The set of live locals is the set of locals we have encountered
+for which we haven&#X2019;t yet encountered the binder.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 22: Liveness<A NAME="fig:liveness"></A> analysis.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package compiler
+
+import collection.mutable.HashSet
+
+class Liveness(function: FunctionTerm) {
+  // Have we seen a (non-tail) call?
+  var seenCall = false
+
+  // Have we seen a call with nonlocal references after it?
+  var seenCallWithRestore = false
+
+  // Have we seen a nonlocal reference?
+  var seenNonlocal = false
+
+  // Have we seen a nonlocal reference since the last call?
+  var seenNonlocalSinceCall = false
+
+  // Have we seen a local reference?
+  var seenLocal = false
+
+  // Currently live locals.
+  val liveLocals = new HashSet[String]
+
+  // Do the analysis.
+  def analyse: Unit = {
+    function.body.lastOption match {
+      case Some(c @ Call(_)) =&gt; c.isTailCall = true
+      case _ =&gt;
+    }
+    traverse(function.body)
+  }
+
+  private def traverse(body: Array[Term]): Unit =
+    for (term &lt;- body.reverse) term match {
+      case nested @ FunctionTerm(_)   =&gt; handleNested(nested)
+      case ArrayCtor(arrayBody)       =&gt; traverse(arrayBody)
+      case id @ Identifier(_)         =&gt; handleIdentifier(id)
+      case b @ Binder(_)              =&gt; handleBinder(b)
+      case c @ Call(_)                =&gt; handleCall(c)
+      case _                          =&gt;
+    }
+
+  ...
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>The first action of liveness analysis is to check if the last term is a call.
+We use <CODE>lastOption</CODE> here because the function body may be empty.
+If it&#X2019;s not empty and the last term is a call,
+it is flagged as a tail call&#X2014;tail calls will be ignored for the rest of this pass,
+so when we refer to &#X201C;calls&#X201D; below we will mean non-tail calls.
+After this check we do the traversal.
+We need to take action for nested functions, identifiers, binders and calls.
+Array constructors are recursively traversed,
+and all other terms are ignored.</P><P>Figure&#XA0;<A HREF="#fig:liveness2">23</A> shows the code to handle identifiers and binders.
+If an identifier is local we need to check if it is live.
+If it is not live,
+this means it is the last reference of that local and we should
+both free it and add it to the set of live locals.
+If we haven&#X2019;t seen any other locals this must be the last use of the frame,
+so we can leave the frame at this point.
+The <CODE>maybeLeaveFrame</CODE> method performs this check.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 23: Liveness analysis<A NAME="fig:liveness2"></A> of identifiers and binders
+(<TT>compiler.Liveness</TT>).</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">  private def handleIdentifier(id: Identifier): Unit =
+    if (id.isLocal) {
+      if (!(liveLocals contains id.name)) {
+        // Last reference to this local.
+        id.freeLocal = true
+        liveLocals + id.name
+        maybeLeaveFrame(id)
+      }
+    } else {
+      seenNonlocal = true
+      seenNonlocalSinceCall = true
+    }
+
+  private def handleBinder(b: Binder): Unit =
+    if (liveLocals contains b.name) liveLocals - b.name
+    else b.isUnused = true
+
+  private def maybeLeaveFrame(term: Term): Unit =
+    if (!seenLocal) {
+      seenLocal = true
+      term.leaveFrame = true
+    }
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>If an identifier is nonlocal we record that we have seen a nonlocal,
+and that it has been since the last call.</P><P>An identifier is dead immediately to the left of its binder,
+so when we encounter a binder we should ensure
+its identifier is removed from the live locals.
+If the identifier wasn&#X2019;t in the live locals,
+it means that the identifier wasn&#X2019;t used anywhere.
+In this case we flag the binder as unused.</P><P>Figure&#XA0;<A HREF="#fig:liveness3">24</A> shows the handling of nested functions,
+which is analogous to the handling of identifiers.
+Each of the nested <CODE>parentLocals</CODE> that is not currently live
+is added to <CODE>localsToFree</CODE> and <CODE>liveLocals</CODE>,
+and we check if we should leave the frame.
+If there are any nested nonlocals,
+we record that we have seen a nonlocal
+and that it has been since the last call.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 24: Liveness analysis<A NAME="fig:liveness3"></A> of nested functions
+(<TT>compiler.Liveness</TT>).</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">  private def handleNested(nested: FunctionTerm): Unit = {
+    for (name &lt;- nested.parentLocals if !(liveLocals contains name)) {
+      // Closure construction is the last to use this local.
+      nested.localsToFree = name :: nested.localsToFree
+      liveLocals + name
+      maybeLeaveFrame(nested)
+    }
+
+    if (nested.hasParentNonlocals) {
+      seenNonlocal = true
+      seenNonlocalSinceCall = true
+    }
+  }
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>Figure&#XA0;<A HREF="#fig:liveness4">25</A> shows the code to handle (non-tail) calls.
+If this is this last call,
+then this is the place we will need to restore the return pointer.
+Since this effectively frees the slot used by the return pointer,
+we check if we can leave the frame.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 25: Liveness analysis<A NAME="fig:liveness4"></A> of calls
+(<TT>compiler.Liveness</TT>).</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">  private def handleCall(c: Call): Unit =
+    if (!c.isTailCall) {
+      // Restore returnPointer if this is the last call.
+      if (!seenCall) {
+        seenCall = true
+        c.restoreReturnPointer = true
+        maybeLeaveFrame(c)
+      }
+
+      // Save currentContext if there are nonlocal references after the call.
+      if (seenNonlocal) c.saveCurrentContext = true
+
+      // Restore currentContext if nonlocals are referenced before the next
+      // call.  Free the currentContext slot on the last such occasion.
+      if (seenNonlocalSinceCall) {
+        seenNonlocalSinceCall = false
+        c.restoreCurrentContext = true
+        if (!seenCallWithRestore) {
+          seenCallWithRestore = true
+          c.freeCurrentContext = true
+        }
+      }
+    }
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>Any call which has nonlocal references after it needs to have the
+current context saved.
+We flag all calls satisfying this condition,
+although only the first call needs to actually save the register
+because we leave the value in place for later calls;
+we don&#X2019;t free the slot until after the last time it needs to be restored.
+In the next pass we will pick out the first call
+and reset the flag for all the others.</P><P>Restoring the current context needs to be done
+if any nonlocals are referenced before the next call.
+Nonlocals <EM>after</EM> the next call don&#X2019;t count,
+because in that case the restore will occur at the later call.
+In our backwards traversal we set the flag if
+we have seen any nonlocals since a call,
+and, since this term is itself a call,
+we record that we have not seen any nonlocals since a call.
+This is also where we check if the restore is the last one,
+in which case we set the flag for freeing the current context slot.</P><H4 CLASS="subsubsection"><A NAME="htoc18">4.2.3</A>&#XA0;&#XA0;Local slot allocation<A NAME="sec:locals"></A></H4><P>The slot allocation pass allocates a slot number for each of the locals.
+We traverse left to right over the function body,
+allocating slots when a binder is encountered
+and using the allocated slot when a local identifier is encountered.
+When the liveness information tells us that a slot can be freed,
+we add it to a &#X201C;free list&#X201D;.
+Each time we allocate a slot
+we first check if there are any available on the free list.
+A new slot is only allocated if none are currently free.</P><P>Figure&#XA0;<A HREF="#fig:slotallocfields">26</A> shows
+the extra fields we need in the parse tree.
+In the base class we define <CODE>enterFrame</CODE>,
+which corresponds to the <CODE>leaveFrame</CODE> field from the previous pass.
+The remaining new fields store information about allocated slots.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 26: Parse tree<A NAME="fig:slotallocfields"></A> fields for slot allocation
+(<TT>compiler.Term</TT>).</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">sealed abstract class Term {
+  // Should we enter the frame before this term?
+  var enterFrame = false
+
+  ...
+}
+
+case class FunctionTerm(body: Array[Term]) extends Term {
+  ...
+  // Where to find nonlocal bindings in the parent.
+  var locations: Array[Location] = null
+
+  // Number of frame slots required.
+  var frameSize = -1
+}
+
+case class Identifier(name: String) extends Term {
+  ...
+  // Where is the binding stored?
+  var location: Location = null
+}
+
+case class Binder(name: String) extends Term {
+  ...
+  // Which frame slot is the value stored in?
+  var frameSlot = -1
+}
+
+case class Call(callType: CallType.Value) extends Term {
+  ...
+  // Should we save returnPointer before this call?
+  var saveReturnPointer = false
+
+  // In which frame slots are the registers stored?
+  var returnPointerSlot = -1
+  var currentContextSlot = -1
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>The <CODE>Location</CODE> type is used where
+the location could either be in the frame or in the context.
+Its implementation is in Figure&#XA0;<A HREF="#fig:location">27</A>.
+Each case has a parameter for the slot number;
+the case itself says whether the slot is in the frame or in the context.
+When it comes to generating code,
+we will want to push the value at the location.
+The <CODE>bytecode</CODE> method returns the appropriate bytecode for this.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 27: Locations<A NAME="fig:location"></A> where bindings are stored.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package compiler
+
+import runtime.{Bytecode, PushLocal, PushNonlocal}
+
+sealed abstract class Location {
+  def bytecode: Bytecode
+}
+
+case class FrameSlot(slot: Int) extends Location {
+  def bytecode = PushLocal(slot)
+}
+
+case class ContextSlot(slot: Int) extends Location {
+  def bytecode = PushNonlocal(slot)
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>The start of the <CODE>SlotAlloc</CODE> class
+is shown in Figure&#XA0;<A HREF="#fig:slotalloc">28</A>.
+It maintains a map of the current slot allocations, the free list,
+and a number of flags.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 28: Slot<A NAME="fig:slotalloc"></A> allocation.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package compiler
+
+import collection.mutable.HashMap
+
+class SlotAlloc(function: FunctionTerm) {
+  // Current slot allocation.
+  val frameSlots = new HashMap[String, Int]
+
+  // Number of slots allocated.
+  var numFrameSlots = 0
+
+  // Frame slots no longer in use.
+  var freeList: List[Int] = Nil
+
+  // Have we entered the frame?
+  var frameEntered = false
+
+  // Have we saved returnPointer?
+  var savedReturnPointer = false
+  val nameReturnPointer = "_returnPointer"
+
+  // Have we saved currentContext?
+  var savedCurrentContext = false
+  val nameCurrentContext = "_currentContext"
+
+  // Allocate the slots.
+  def allocate: Unit = {
+    traverse(function.body)
+    function.frameSize = numFrameSlots
+  }
+
+  private def traverse(body: Array[Term]): Unit =
+    for (term &lt;- body) term match {
+      case nested @ FunctionTerm(_)   =&gt; handleNested(nested)
+      case ArrayCtor(arrayBody)       =&gt; traverse(arrayBody)
+      case id @ Identifier(_)         =&gt; handleIdentifier(id)
+      case b @ Binder(_)              =&gt; handleBinder(b)
+      case c @ Call(_)                =&gt; handleCall(c)
+      case _                          =&gt;
+    }
+
+  ...
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>We allocate slots for the virtual machine registers
+in the same way that we allocate them for locals.
+To do this we need a fixed name for each of the registers.
+The fields <CODE>nameReturnPointer</CODE> and <CODE>nameCurrentContext</CODE>
+provide these names.
+We have chosen names beginning with an underscore
+because these are not valid GML identifiers&#X2014;the parser never produces binders or identifiers with these names,
+so there is no possibility of an accidental conflict
+with a user&#X2019;s GML program.</P><P>Slot allocation is performed by traversing over the function body
+in a similar way to previous passes.
+After the traversal is complete,
+we set the function frame size to the value of <CODE>numFrameSlots</CODE>.
+This value is equal to the maximum number of slots used
+at any point in the function.
+Ultimately, this will determine the size we use
+when entering and leaving the frame for this function.</P><P>Support methods for local slot allocation
+are shown in Figure&#XA0;<A HREF="#fig:slotalloc2">29</A>.
+These include methods for handling the free list as described earlier,
+and a method <CODE>maybeEnterFrame</CODE>
+which corresponds to <CODE>maybeLeaveFrame</CODE> from the previous section.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 29: Support methods<A NAME="fig:slotalloc2"></A> for slot allocation
+(<TT>compiler.SlotAlloc</TT>).</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">  private def maybeEnterFrame(term: Term): Unit =
+    if (!frameEntered) {
+      frameEntered = true
+      term.enterFrame = true
+    }
+
+  private def allocateSlot(name: String): Int = {
+    var slot = -1
+    freeList match {
+      case firstFree :: rest =&gt;
+        slot = firstFree
+        freeList = rest
+      case Nil =&gt;
+        slot = numFrameSlots
+        numFrameSlots += 1
+    }
+    frameSlots(name) = slot
+    slot
+  }
+
+  private def freeSlot(name: String): Unit = {
+    freeList = frameSlots(name) :: freeList
+    frameSlots.removeKey(name)
+  }
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>The code for handling nested functions is shown in Figure&#XA0;<A HREF="#fig:slotalloc3">30</A>.
+We need to set the <CODE>locations</CODE> field to an array containing
+a <CODE>Location</CODE> for each of the nonlocals in the function.
+When we emit bytecode to construct a closure for this function,
+the locations field will tell us
+where to find all the bindings for the context.
+The location depends on whether the identifier is
+local or nonlocal in the parent:
+local bindings are found in the frame slot that has been allocated,
+and nonlocal bindings are found in the context slot
+given by the parent function&#X2019;s <CODE>nonlocalMap</CODE>.
+We use a higher-order &#X201C;map&#X201D; expression
+(really just a method call to <CODE>map</CODE> with a function argument)
+to write this concisely.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 30: Slot allocation<A NAME="fig:slotalloc3"></A> for nested functions
+(<TT>compiler.SlotAlloc</TT>).</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">  private def handleNested(nested: FunctionTerm): Unit = {
+    // Set the locations of the nested nonlocals.
+    nested.locations = nested.nonlocals map { arg =&gt;
+      if (nested.parentLocals contains arg) FrameSlot(frameSlots(arg))
+      else ContextSlot(function.nonlocalMap(arg))
+    }
+
+    // Free all parent locals whose last appearance is in the nested function.
+    nested.localsToFree.foreach(freeSlot)
+  }
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>The other task for handling nested functions is to free all of the locals
+in the <CODE>localsToFree</CODE> field.
+This needs to be done <EM>after</EM> creating the <CODE>locations</CODE> array
+because freeing a slot removes its entry from <CODE>frameSlots</CODE>,
+but that entry would have been needed to get the correct frame slot location.</P><P>Identifiers and binders are handled in Figure&#XA0;<A HREF="#fig:slotalloc4">31</A>.
+Identifiers are handled similarly to nested functions:
+we need to set the location and then free the identifier if it is local.
+For a binder, if it is used at all then it needs a slot allocated.
+Since this may be the first time any frame slot is used,
+we need to check whether to enter the frame.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 31: Slot allocation<A NAME="fig:slotalloc4"></A> for identifiers and binders
+(<TT>compiler.SlotAlloc</TT>).</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">  private def handleIdentifier(id: Identifier): Unit =
+    if (id.isLocal) {
+      id.location = FrameSlot(frameSlots(id.name))
+      if (id.freeLocal) freeSlot(id.name)
+    } else {
+      id.location = ContextSlot(function.nonlocalMap(id.name))
+    }
+
+  private def handleBinder(b: Binder): Unit =
+    if (!b.isUnused) {
+      maybeEnterFrame(b)
+      b.frameSlot = allocateSlot(b.name)
+    }
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>The last piece of the slot allocation pass is for handling calls,
+and is shown in Figure&#XA0;<A HREF="#fig:slotalloc5">32</A>.
+As in the previous pass, we don&#X2019;t need to do anything for tail calls.
+For non-tail calls,
+we need to deal with the saving and restoring of the registers.
+This involves setting the flag and slot location in the <CODE>Call</CODE>,
+and possibly freeing the slot.
+Since this might be the first time a frame slot is used,
+we again need to check whether to enter the frame.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 32: Slot allocation<A NAME="fig:slotalloc5"></A> for calls
+(<TT>compiler.SlotAlloc</TT>).</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">  private def handleCall(c: Call): Unit =
+    if (!c.isTailCall) {
+      maybeEnterFrame(c)
+
+      if (!savedReturnPointer) {
+        savedReturnPointer = true
+        c.saveReturnPointer = true
+        c.returnPointerSlot = allocateSlot(nameReturnPointer)
+      }
+
+      if (c.saveCurrentContext) {
+        if (!savedCurrentContext) {
+          savedCurrentContext = true
+          c.currentContextSlot = allocateSlot(nameCurrentContext)
+        } else {
+          c.saveCurrentContext = false
+        }
+      }
+
+      if (c.restoreReturnPointer) {
+        c.returnPointerSlot = frameSlots(nameReturnPointer)
+        freeSlot(nameReturnPointer)
+      }
+
+      if (c.restoreCurrentContext)
+        c.currentContextSlot = frameSlots(nameCurrentContext)
+
+      if (c.freeCurrentContext)
+        freeSlot(nameCurrentContext)
+    }
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>The return pointer must be saved before the first call,
+so we do this the first time
+then set <CODE>savedReturnPointer</CODE> to say that this has been done.
+The current context needs to be saved if the <CODE>saveCurrentContext</CODE>
+flag was set in the previous pass,
+but recall that we only wanted to do this for the first such call.
+Therefore, we set <CODE>savedCurrentContext</CODE> on the first occasion,
+and on later occasions we clear the flag in the <CODE>Call</CODE>
+rather than doing the save.</P><P>Restoring the registers is done based on
+the <CODE>restoreReturnPointer</CODE> and <CODE>restoreCurrentContext</CODE> flags.
+For the return pointer,
+there will only be one restore so we unconditionally free the slot.
+The current context may be restored multiple times,
+which is why we needed a separate <CODE>freeCurrentContext</CODE> flag.
+We only free the slot if this is set.</P><H4 CLASS="subsubsection"><A NAME="htoc19">4.2.4</A>&#XA0;&#XA0;Code generation<A NAME="sec:codegen"></A></H4><P>Now that we have done the hard analysis work,
+code generation is relatively easy.
+It works in a similar way to the previous passes,
+in that we traverse one function body at a time.
+In this case, however, we generate code for the function as a side effect.</P><P>Figure&#XA0;<A HREF="#fig:codegenfields">33</A> shows
+the last addition we will need to make to the parse tree.
+This is the address of the start of the bytecode generated for the function,
+which we fill when we start to generate the code.
+As with the analysis passes,
+we generate code for all nested functions
+before we generate code for the parent,
+so the address will be valid in the nested functions
+by the time we need to create closures for them in the parent.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 33: Parse tree<A NAME="fig:codegenfields"></A> fields for code generation
+(<TT>compiler.Term</TT>).</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">case class FunctionTerm(body: Array[Term]) extends Term {
+  ...
+  // Address of function in generated bytecode.
+  var address = -1
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>The start of the code generator is shown in Figure&#XA0;<A HREF="#fig:codegen">34</A>.
+The <CODE>code</CODE> parameter is a bytecode stack where we will generate code&#X2014;an instruction is generated by pushing it onto this stack.
+The next address that will be used is given by the size of the code stack;
+we use this to set the function address at the start of <CODE>generate</CODE>.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 34: Code<A NAME="fig:codegen"></A> generation.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package compiler
+
+import collection.mutable.Stack
+import runtime._
+
+class CodeGen(function: FunctionTerm, code: Stack[Bytecode]) {
+  // Generate code for the function.
+  def generate: Unit = {
+    function.address = code.size
+    traverse(function.body)
+    function.body.lastOption match {
+      case Some(c @ Call(_)) if (c.isTailCall) =&gt;
+      case _ =&gt; code push Return
+    }
+  }
+
+  private def traverse(body: Array[Term]): Unit =
+    for (term &lt;- body) term match {
+      case nested @ FunctionTerm(_)   =&gt; generateNested(nested)
+      case ArrayCtor(arrayBody)       =&gt; generateArrayCtor(arrayBody)
+      case id @ Identifier(_)         =&gt; generateIdentifier(id)
+      case b @ Binder(_)              =&gt; generateBinder(b)
+      case c @ Call(_)                =&gt; generateCall(c)
+      case Render                     =&gt; code push DoRender
+      case Operator(name)             =&gt; code push Op(Operators(name))
+      case IntLiteral(n)              =&gt; code push PushInt(n)
+      case RealLiteral(d)             =&gt; code push PushReal(d)
+      case StringLiteral(s)           =&gt; code push PushString(s)
+    }
+
+  ...
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>After we have traversed the body
+we will need to generate a <CODE>Return</CODE> instruction
+unless the last term was a tail call.
+The <CODE>match</CODE> expression tests for this case first,
+in which case it generates nothing,
+and generates the instruction in all other cases
+(including when the function body is empty).</P><P>Traversal is from left to right.
+Literals and operators only require a single instruction to be generated;
+in the case of operators other than <CODE>render</CODE>
+we need to look up the operator implementation
+in the <CODE>Operators</CODE> object.
+The other cases are handled by separate methods.</P><P>Code generation of nested functions is shown in Figure&#XA0;<A HREF="#fig:codegen2">35</A>.
+Since both the <CODE>enterFrame</CODE> and the <CODE>leaveFrame</CODE> flags
+could be set for this type of term,
+we check these at the start and end of the method, respectively.
+Each check needs to generate the corresponding bytecode if the flag is set.
+We will want to use the checks below, as well,
+so we define methods <CODE>maybeEnterFrame</CODE> and <CODE>maybeLeaveFrame</CODE>
+to do the checks.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 35: Code generation<A NAME="fig:codegen2"></A> of nested functions
+(<TT>compiler.CodeGen</TT>).</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">  private def generateNested(nested: FunctionTerm): Unit = {
+    maybeEnterFrame(nested)
+    code push PushInt(nested.address)
+    nested.locations foreach { code push _.bytecode }
+    code push MakeClosure(nested.locations.length)
+    maybeLeaveFrame(nested)
+  }
+
+  private def maybeEnterFrame(term: Term): Unit =
+    if (term.enterFrame) code push EnterFrame(function.frameSize)
+
+  private def maybeLeaveFrame(term: Term): Unit =
+    if (term.leaveFrame) code push LeaveFrame(function.frameSize)
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>In between the calls to handle the frame,
+we generate code that constructs a closure for the nested function.
+We first generate code to push the bytecode address and all the arguments,
+whose locations can be found in the <CODE>locations</CODE> field
+of the nested function.
+For the arguments,
+we use the <CODE>foreach</CODE> method
+in a way similar to <CODE>map</CODE> from Figure&#XA0;<A HREF="#fig:slotalloc3">30</A>.
+We then generate a <CODE>MakeClosure</CODE> instruction,
+passing it the number of arguments we have just pushed.
+At runtime, all of the arguments we pushed will be converted into a context,
+and this will be combined with the address to form the closure.</P><P>Figure&#XA0;<A HREF="#fig:codegen3">36</A> shows the code generation of
+array constructors, identifiers and binders.
+To construct an array we just generate the code for the array body,
+but surround it with <CODE>StartArray</CODE> and <CODE>EndArray</CODE> instructions.
+For identifiers, we generate the bytecode
+to push the value at its location onto the data stack.
+We also check whether to leave the frame afterwards.
+For binders, we first check whether to enter the frame.
+The bytecode for the binding depends on whether the binder is used or not.
+If it&#X2019;s unused we generate <CODE>PopUnused</CODE>,
+otherwise we generate <CODE>PopLocal</CODE>,
+with the correct frame slot for that binder.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 36: Code generation<A NAME="fig:codegen3"></A> of array constructors,
+identifiers and binders (<TT>compiler.CodeGen</TT>).</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">  private def generateArrayCtor(body: Array[Term]): Unit = {
+    code push StartArray
+    traverse(body)
+    code push EndArray
+  }
+
+  private def generateIdentifier(id: Identifier): Unit = {
+    code push id.location.bytecode
+    maybeLeaveFrame(id)
+  }
+
+  private def generateBinder(b: Binder): Unit = {
+    maybeEnterFrame(b)
+    if (b.isUnused) code push PopUnused
+    else code push PopLocal(b.frameSlot)
+  }
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>Code generation of calls is shown in Figure&#XA0;<A HREF="#fig:codegen4">37</A>.
+Prior to the call we check whether to enter the frame,
+and check whether to save each of the two virtual machine registers.
+The call itself is just the bytecode corresponding to the call type.
+After the call we check whether to restore the registers
+and whether to leave the frame.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 37: Code generation<A NAME="fig:codegen4"></A> of calls
+(<TT>compiler.CodeGen</TT>).</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">  private def generateCall(c: Call): Unit = {
+    maybeEnterFrame(c)
+    if (c.saveReturnPointer) code push SaveReturnPtr(c.returnPointerSlot)
+    if (c.saveCurrentContext) code push SaveContext(c.currentContextSlot)
+    c.callType match {
+      case CallType.Apply =&gt; code push Apply(c.isTailCall)
+      case CallType.If    =&gt; code push If(c.isTailCall)
+    }
+    if (c.restoreCurrentContext) code push RestoreContext(c.currentContextSlot)
+    if (c.restoreReturnPointer) code push RestoreReturnPtr(c.returnPointerSlot)
+    maybeLeaveFrame(c)
+  }
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><H3 CLASS="subsection"><A NAME="toc9"></A><A NAME="htoc20">4.3</A>&#XA0;&#XA0;Tying it together<A NAME="sec:tying"></A></H3><P>In this section we implement a <CODE>Compiler</CODE> class that
+brings together the analysis passes,
+and a top level application for parsing and running GML programs.
+At this stage we will have a functioning system,
+although obviously it won&#X2019;t be possible to do any rendering
+until we implement the operators for it in section&#XA0;<A HREF="rendering.html#sec:rendering">5</A>.</P><H4 CLASS="subsubsection"><A NAME="htoc21">4.3.1</A>&#XA0;&#XA0;The <TT>Compiler</TT> class<A NAME="sec:compiler"></A></H4><P>The <CODE>Compiler</CODE> class is shown in Figure&#XA0;<A HREF="#fig:compiler">38</A>.
+It performs the analysis and generates code for all functions in a program,
+making sure that the assumptions about the order of processing are met.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 38: The<A NAME="fig:compiler"></A> <TT>Compiler</TT> class.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package compiler
+
+import collection.mutable.Stack
+import runtime.Bytecode
+
+class Compiler {
+  // Code is generated here.
+  val codeStack = new Stack[Bytecode]
+  def code = codeStack.toArray
+
+  // Compile a function, after recursively compiling all nested functions.
+  def compile(function: FunctionTerm): Unit = {
+    recursiveCompile(function.body)
+    new Nonlocals(function).analyse
+    new Liveness(function).analyse
+    new SlotAlloc(function).allocate
+    new CodeGen(function, codeStack).generate
+  }
+
+  // Compile all nested functions in the body.
+  def recursiveCompile(body: Array[Term]): Unit =
+    for (term &lt;- body) term match {
+      case nested @ FunctionTerm(_)   =&gt; compile(nested)
+      case ArrayCtor(arrayBody)       =&gt; recursiveCompile(arrayBody)
+      case _                          =&gt;
+    }
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>Recall that there were two assumptions:
+each pass of a function comes after that pass for all of the nested functions,
+and comes after the earlier passes for that function.
+It is easy to see that the code in the <CODE>compile</CODE> method
+satisfies both of these assumptions,
+because the call to <CODE>recursiveCompile</CODE> comes first
+and the remaining calls are in the correct order.</P><P>When we do the recursive compile,
+we mustn&#X2019;t forget to check inside array constructors for nested functions.
+This is why, aside from calling <CODE>compile</CODE> for function terms,
+it also calls itself recursively for array constructors.
+Functions occurring inside arrays will thus be found,
+as will functions inside arrays inside arrays, and so on.</P><P>All code generators are passed the <CODE>codeStack</CODE> value,
+so they all push their code onto the one stack.
+Once the program has been compiled
+the resulting bytecode can be extracted with the <CODE>code</CODE> method,
+which converts <CODE>codeStack</CODE> to the required array.</P><H4 CLASS="subsubsection"><A NAME="htoc22">4.3.2</A>&#XA0;&#XA0;The <TT>Main</TT> object<A NAME="sec:main"></A></H4><P>The <CODE>Main</CODE> object in Figure&#XA0;<A HREF="#fig:main">39</A> implements an application
+that reads in a GML program, compiles and executes it,
+then prints out the contents of the data stack.</P><BLOCKQUOTE CLASS="figure"><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV>
+<DIV CLASS="caption"><TABLE CELLSPACING=6 CELLPADDING=0><TR><TD VALIGN=top ALIGN=left>Figure 39: The<A NAME="fig:main"></A> <TT>Main</TT> object.</TD></TR>
+</TABLE></DIV><FONT COLOR="blue">
+</FONT><PRE CLASS="verbatim"><FONT COLOR="blue">package compiler
+
+import io.Source
+import runtime._
+
+object Main {
+  def main(args: Array[String]): Unit = {
+    // Get the input source.
+    val in = if (args.length &gt; 0) Source.fromFile(args(0))
+             else Source.fromInputStream(System.in)
+
+    // Parse the input and wrap the resulting terms in a function.
+    val main = FunctionTerm(GmlParser(in.getLines.mkString))
+
+    // Compile to bytecode.
+    val compiler = new Compiler
+    compiler.compile(main)
+
+    // At the top level, it is an error if there are any nonlocals.
+    if (main.nonlocals.length &gt; 0) {
+      println("Error: unbound identifier(s): "+ main.nonlocals.mkString(" "))
+      exit(1)
+    } else {
+      // Execute the bytecode.
+      val vm = new VM(compiler.code)
+      try {
+        vm.execute(main.address)
+      } catch {
+        case e =&gt;
+          println(e.getMessage)
+          // Close off any unfinished arrays.
+          while (vm.data.metaStackTop != 0) vm.data.endArray
+      }
+      println("Data stack:")
+      while (vm.data.stackTop &gt; 0) println(vm.data.pop)
+    }
+  }
+}
+</FONT></PRE><DIV CLASS="center"><HR WIDTH="80%" SIZE=2></DIV></BLOCKQUOTE><P>Input is read from the file given by the first argument,
+if there are any command line arguments,
+otherwise it is read from standard input.</P><P>The parsed terms are wrapped in a function term before being compiled.
+This doesn&#X2019;t change the meaning of the GML program,
+because evaluating the terms directly is equivalent to
+applying the function term in an empty environment.
+Note that if the list of nonlocals for the compiled function
+is <EM>not</EM> empty, this is a problem.
+It means some identifiers being referred to are not bound to any value,
+so in this case we report an error and exit.</P><P>We then execute the code for <CODE>main</CODE> and print out the data stack.
+The call to <CODE>vm.execute</CODE> is performed in a <CODE>try</CODE> block
+in order to catch type errors and underflow errors in the GML programs,
+which are not detected by the compiler.
+If an error is caught,
+we print its message then fix up the data stack before printing it out.
+We need to do this because the error may have occurred when building an array,
+in which case the meta-stack would not be empty
+and the code to print the stack would not work properly.</P><P>The next section has some GML examples that you can now try out.</P><H4 CLASS="subsubsection"><A NAME="htoc23">4.3.3</A>&#XA0;&#XA0;Some GML Examples<A NAME="sec:gmlexamples"></A></H4><P>Our first example is a standard for toy functional programming languages,
+the factorial function.
+Consider the following GML code:
+</P><PRE CLASS="verbatim">  { /self /n
+    n 2 lessi
+      { 1 }
+      { n 1 subi self self apply n muli }
+    if
+  } /fac
+</PRE><P>This code uses <EM>anonymous recursion</EM> to implement
+a form of the factorial function.
+The first input, which <CODE>self</CODE> will be bound to,
+is a closure that is to be called for the recursive case.
+The idea is that any time we want to apply <CODE>fac</CODE>,
+we should push two copies of it:
+one that is used by the apply operator,
+and one that <CODE>self</CODE> gets bound to.
+The body of the function compares <CODE>n</CODE>,
+and if it is less than two then one is returned.
+If not then we subtract one from <CODE>n</CODE> and do the recursive call,
+remembering to push two copies of the closure,
+then multiply the result by <CODE>n</CODE>.</P><P>This function can be used as follows:
+</P><PRE CLASS="verbatim">  8 fac fac apply
+</PRE><P>The result will be a data stack containing 40320.</P><P>This is a little awkward to use&#X2014;forgetting to mention <CODE>fac</CODE> twice will lead to a stack underflow
+or type error.
+We can add the following code to help with this.
+</P><PRE CLASS="verbatim">  { fac fac apply } /fac
+</PRE><P>The <CODE>fac</CODE> inside this function refers to the binding we made above.
+The function applies <CODE>fac</CODE> to whtaever is on top of the stack,
+ensuring that the extra copy is passed as required.
+The binding uses the same name <CODE>fac</CODE>,
+which means that this binding shadows the previous one.
+This doesn&#X2019;t affect the code inside the function,
+only the code that comes after this definition,
+so any code after this point can contain:
+</P><PRE CLASS="verbatim">  8 fac apply
+</PRE><P>and expect the right result.</P><P>The aim of our next example is a generic function that takes
+an integer <CODE>n</CODE> and a function <CODE>f</CODE>.
+The effect is that <CODE>f</CODE> is applied <CODE>n</CODE> times.
+We again start with a version that uses anonymous recursion,
+then shadow it with the real version:
+</P><PRE CLASS="verbatim">  { /self /n /f
+    n 1 lessi
+      {}
+      { f apply f n 1 subi self self apply }
+    if
+  } /repeat
+
+  { repeat repeat apply } /repeat
+</PRE><P>If <CODE>n</CODE> is less than one then we call the identity function
+which does nothing.
+Otherwise we apply <CODE>f</CODE> once then make the recursive call.</P><P>For example, we can create an array containing twenty zeroes with:
+</P><PRE CLASS="verbatim">  [ { 0 } 20 repeat apply ]
+</PRE><P>Another simple use of <CODE>repeat</CODE> is to create a Fibonacci sequence
+on the data stack:
+</P><PRE CLASS="verbatim">  { /n
+    { /b /a a b a b addi } n repeat apply
+  } /fib
+</PRE><P>Here the nested function reads the top two numbers
+(that is, pops them then pushes them again so as to leave
+the data stack unchanged)
+then pushes their sum.
+Applying the nested function once extends a Fibonacci sequence by one.</P><P>For example,
+the following array contains the first twelve numbers of
+the Fibonacci sequence starting with two ones:
+</P><PRE CLASS="verbatim">  [ 1 1 10 fib apply ]
+</PRE><P>The output from our program is:
+</P><PRE CLASS="verbatim">  Data stack:
+  [1, 1, 2, 3, 5, 8, 13, 21, 34, 55, 89, 144]
+</PRE><HR>
+<A HREF="vm.html"><IMG SRC="previous_motif.gif" ALT="Previous"></A>
+<A HREF="index.html"><IMG SRC="contents_motif.gif" ALT="Up"></A>
+<A HREF="rendering.html"><IMG SRC="next_motif.gif" ALT="Next"></A>
+</BODY>
+</HTML>

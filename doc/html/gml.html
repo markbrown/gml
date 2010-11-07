@@ -1,0 +1,58 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN"
+            "http://www.w3.org/TR/REC-html40/loose.dtd">
+<HTML>
+<HEAD>
+
+<META http-equiv="Content-Type" content="text/html; charset=US-ASCII">
+<META name="GENERATOR" content="hevea 1.10">
+<LINK rel="stylesheet" type="text/css" href="gml-scala-example.css">
+<TITLE>GML: GML</TITLE>
+</HEAD>
+<BODY >
+<A HREF="intro.html"><IMG SRC="previous_motif.gif" ALT="Previous"></A>
+<A HREF="index.html"><IMG SRC="contents_motif.gif" ALT="Up"></A>
+<A HREF="vm.html"><IMG SRC="next_motif.gif" ALT="Next"></A>
+<HR>
+<H2 CLASS="section"><A NAME="htoc2">2</A>&#XA0;&#XA0;GML<A NAME="sec:gml"></A></H2><P>This is a quick introduction to GML.
+The complete definition is in section 2 of the task specification,
+which can be found on the contest website.
+If you already know GML you can skip this part.</P><P>A GML program is a list of terms,
+where each term is either a function, an array or a token.
+A function is a list of terms surrounded by curly braces,
+and an array is a list of terms surrounded by square brackets.
+A token is an identifier, a binder (an identifier preceded by &#X2018;<CODE>/</CODE>&#X2019;),
+an operator or a literal value
+(a Boolean, integer, real or string).</P><P>Evaluation proceeds by stepping through each term in the list,
+maintaining an <EM>environment</EM> mapping identifiers to values
+and a <EM>data stack</EM> for intermediate results.
+An identifier is evaluated by
+pushing the value it maps to in the environment onto the data stack.
+A binder is evaluated by popping a value off the data stack
+and mapping the identifier to that value.
+Literals are pushed directly onto the data stack.
+The language defines a fixed set of operators
+that evaluate by popping inputs then pushing the result.
+To evaluate an array,
+we first evaluate its list of terms starting with a new data stack.
+The final contents of the data stack are converted into an array value,
+which is then pushed onto the original stack.</P><P>To evaluate a function we just
+push a value representing the function onto the stack.
+We don&#X2019;t evaluate the terms inside the function until later
+when we reach one of two important operators, <CODE>apply</CODE> and <CODE>if</CODE>.
+The <CODE>apply</CODE> operator saves the current environment,
+then pops a function value off the stack and evaluates it.
+When the evaluation finishes, the saved environment is restored.
+The <CODE>if</CODE> operator is similar except that it pops three values:
+a Boolean and two functions.
+If the Boolean is <CODE>true</CODE> it evaluates the first function,
+otherwise it evaluates the second.</P><P>Scene construction and rendering,
+which is the main purpose of a GML program,
+is all done via built-in operators.
+Since the implementation of these operators is somewhat orthogonal
+to the virtual machine and compiler,
+we leave further discussion of them to section&#XA0;<A HREF="rendering.html#sec:rendering">5</A>.</P><HR>
+<A HREF="intro.html"><IMG SRC="previous_motif.gif" ALT="Previous"></A>
+<A HREF="index.html"><IMG SRC="contents_motif.gif" ALT="Up"></A>
+<A HREF="vm.html"><IMG SRC="next_motif.gif" ALT="Next"></A>
+</BODY>
+</HTML>

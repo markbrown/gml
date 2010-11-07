@@ -1,0 +1,138 @@
+<!DOCTYPE HTML PUBLIC "-//W3C//DTD HTML 4.0 Transitional//EN"
+            "http://www.w3.org/TR/REC-html40/loose.dtd">
+<HTML>
+<HEAD>
+
+<META http-equiv="Content-Type" content="text/html; charset=US-ASCII">
+<META name="GENERATOR" content="hevea 1.10">
+<LINK rel="stylesheet" type="text/css" href="gml-scala-example.css">
+<TITLE>GML: Exercises for the reader</TITLE>
+</HEAD>
+<BODY >
+<A HREF="rendering.html"><IMG SRC="previous_motif.gif" ALT="Previous"></A>
+<A HREF="index.html"><IMG SRC="contents_motif.gif" ALT="Up"></A>
+<HR>
+<H2 CLASS="section"><A NAME="htoc41">6</A>&#XA0;&#XA0;Exercises<A NAME="sec:exercises"></A> for the reader</H2><P>There are probably quite a few ways in which our program can be improved.
+Any bugs that I am aware of have been fixed,
+although that&#X2019;s not to say there aren&#X2019;t any others.
+Kind and/or useful bug reports will be warmly received, of course,
+and patches even more so.</P><P>Some potential improvements are collected here as challenge exercises.
+Readers who would like to try Scala out for themselves
+may wish to give one or more of them a go.</P><P>
+<B>Exercise 1</B><BR>
+Add an operator <CODE>string</CODE> that converts any integer
+to a string containing its decimal representation.
+Add an operator <CODE>append</CODE> that appends two strings
+to form another string.
+These operators can be used for building a filename inside a function
+that may be called more than once
+(for example, to produce an animation
+consisting of a sequence of still images).
+</P><P>
+<B>Exercise 2</B><BR>
+Extend the lexer to allow a <CODE>#include</CODE> directive
+that reads tokens from the included file until the end,
+then continues reading tokens from after the directive.
+Recursive includes should also be handled correctly.
+If a cycle is detected
+(that is, we reach an include directive for a file that is already being read)
+the included file should be skipped.
+Optionally provide a compiler warning when this happens.
+</P><P>
+<B>Exercise 3</B><BR>
+Change
+the definition of the <CODE>Op</CODE> class from section&#XA0;<A HREF="vm.html#sec:bytecode">3.3</A>
+as follows:
+</P><PRE CLASS="verbatim">case class Op(index: Int) extends Bytecode
+</PRE><P>The <CODE>index</CODE> parameter is an index into an operator table.
+Modify the compiler to keep track of the operator index,
+rather than the operator implementation as it currently does.
+To execute the bytecode,
+the virtual machine should look up the implementation in the operator table
+and run it.</P><P>What advantages and/or disadvantages
+does this design change have for our virtual machine?
+</P><P>
+<B>Exercise 4</B><BR>
+Error handling by the <CODE>Main</CODE> object is not very sophisticated.
+For example,
+out-of-bounds errors for arrays are not printed in a meaningful way.
+Aside from the type errors that we already report,
+try to figure out the possible ways a well-formed GML program
+could cause an exception to be thrown by the virtual machine at runtime.
+Add code to catch these exceptions
+and provide the user with some constructive feedback on the error.
+</P><P>
+<B>Exercise 5</B><BR>
+Add add integer parameter to the <CODE>Term</CODE> base class to hold
+the line number of the first character in the term.
+During code generation,
+create an array of integers parallel to the bytecode array,
+with each integer being the line number of
+the term which caused that bytecode to be generated.
+When a runtime error occurs,
+the point of execution can be determined
+from the current value of the code pointer register.
+Use the information in the array to report the line number
+of the term that was executing,
+along with the error message.
+</P><P>
+<B>Exercise 6</B><BR>
+Add a transformation operator <CODE>bound</CODE> that
+doesn&#X2019;t change the appearance of the scene at all,
+but causes a bounding-sphere calculation to be performed.
+When converting the scene into a world at the start of rendering,
+a sphere (that is, a center point and radius)
+that encloses that part of the scene should be found.
+The sphere <EM>must not</EM> cut off any part of the scene,
+and ideally it should be as small as possible.
+</P><P>When firing a ray at this scene,
+a quick check should first be performed
+to see whether the ray intersects the bounding sphere.
+If there is no intersection,
+then there will be no boundaries with the scene inside the sphere
+and the expensive boundary calculation doesn&#X2019;t need to be performed.
+If there is an intersection then the boundaries should be calculated as before.</P><P>
+<B>Exercise 7</B><BR>
+Add a preprocessing stage to rendering
+that tries to find good places
+to automatically add bounding sphere calculations.
+Better results may be possible if the
+unions, intersections and differences are rearranged
+so as to cluster primitive shapes together.
+This should be done in accordance with the laws of Boolean algebra,
+to ensure that the image is never affected by the optimisations.
+Choose a set of benchmarks and try to measure a performance improvement.
+</P><P>
+<B>Exercise 8</B><BR>
+Consider the following slightly contrived GML code:
+</P><DIV CLASS="center">
+<CODE>42 /x {{{ ... {{{x}}} ... }}} apply ... apply</CODE>
+</DIV><P>
+Each of the nested closures has <CODE>x</CODE> as a nonlocal;
+each constructs another closure using <CODE>x</CODE> then returns,
+until the innermost one which pushes the value 42.
+All this constructing of contexts for the nonlocal <CODE>x</CODE>
+is somewhat unnecessary,
+since <CODE>x</CODE> is bound at the top level
+and therefore has the constant value 42 wherever it is used.
+It is effectively a global constant.
+The bytecode could equivalently just push the literal value
+and not use the context at all.
+</P><P>Implement a compiler analysis pass that searches for opportunities
+to use global constants instead of nonlocal context slots.
+Hint: in Figure&#XA0;<A HREF="compiling.html#fig:compiler">38</A> all of the analysis passes are called
+<EM>after</EM> the call to <CODE>recursiveCompile</CODE>.
+In what circumstances would you want a compiler pass to be called before
+the recursive call?</P><P>
+<B>Exercise 9</B><BR>
+If a literal value, or a global constant from the previous exercise,
+is pushed immediately before an operator such as <CODE>sin</CODE> or <CODE>cos</CODE>,
+the operation can be performed once at compile time
+and the resulting value substituted into the bytecode.
+Implement this compiler optimization,
+and any other extensions to this idea that you can think of.
+</P><HR>
+<A HREF="rendering.html"><IMG SRC="previous_motif.gif" ALT="Previous"></A>
+<A HREF="index.html"><IMG SRC="contents_motif.gif" ALT="Up"></A>
+</BODY>
+</HTML>
