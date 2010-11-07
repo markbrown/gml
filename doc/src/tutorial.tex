@@ -228,7 +228,13 @@ The \verb!ExpandArray! object provides a method to set an array element,
 using an immutable style interface where the result array is returned.
 In most cases \verb!set! behaves just like a mutable update
 and returns the same array that is passed to it without copying.
-However, if the index is out of range then a larger array is returned.
+However, if the index is out of range then a larger array is returned.%
+\footnote{This is one place that would need to change for Scala 2.8.
+Due to changes in the handling of arrays,
+we would need to provide an implicit \texttt{ClassManifest} argument
+to both of the methods.
+However, if we did that the code would no longer compile with Scala 2.7.
+See \link{http://www.scala-lang.org/sid/7} for more information.}
 
 \begin{figure}
 \setcaption{Support code\label{fig:expandarray} for expanding arrays on demand.}
