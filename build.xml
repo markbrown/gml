@@ -7,6 +7,7 @@
   <!-- source locations -->
   <property name="src.dir"      value="src"/>
   <property name="docsrc.dir"   value="doc/src"/>
+  <property name="examples.dir" value="examples"/>
 
   <!-- base name of documentation files -->
   <property name="doc.name"     value="gml-scala-example"/>
@@ -91,10 +92,25 @@
           todir="${html.dir}"/>
   </target>
 
+  <!-- run examples -->
+  <target name="run"
+          description="run examples to produce PPM files"
+          depends="compile">
+    <apply executable="scala"
+           dir="${examples.dir}">
+      <arg value="-cp"/>
+      <arg value="${basedir}/${classes.dir}"/>
+      <arg value="compiler.Main"/>
+      <fileset dir="${examples.dir}">
+        <include name="*.gml"/>
+      </fileset>
+    </apply>
+  </target>
+
   <!-- cleaning -->
   <target name="clean"
           description="delete generated files"
-          depends="clean-latex">
+          depends="clean-latex,clean-examples">
     <delete dir="${build.dir}"/>
   </target>
 
@@ -103,6 +119,15 @@
     <delete>
       <fileset dir="${docsrc.dir}">
         <exclude name="*.tex"/>
+      </fileset>
+    </delete>
+  </target>
+
+  <target name="clean-examples"
+          description="delete the generated example images">
+    <delete>
+      <fileset dir="${examples.dir}">
+        <include name="*.ppm"/>
       </fileset>
     </delete>
   </target>
