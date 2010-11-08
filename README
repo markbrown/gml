@@ -7,6 +7,7 @@ description, which is then rendered to an output file.  The task originally
 appeared as a challenge for the Third Annual ICFP Programming Contest
 <http://www.cs.cornell.edu/icfp/> in August, 2000.
 
+
 doc:
 	Tutorial/walkthrough (html, single-page html, pdf).
 
@@ -15,4 +16,19 @@ examples:
 
 src:
 	GML implementation.
+
+
+The program and documentation can be built using ant.  Before doing this,
+Scala's installed location must be set in the build.properties file.  Scala
+version 2.7.x is required to build the program.  Building the documentation
+requires pdflatex (for pdf) or hevea (for html).
+
+After building, GML programs can be run with a command like:
+
+    $ scala -cp build/classes compiler.Main examples/chess.gml
+
+which will create the chess.ppm file in the current directory.
+
+
+Enjoy!
 
